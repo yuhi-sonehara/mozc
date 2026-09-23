@@ -48,8 +48,14 @@ mozc_cc_library(
 
 mozc_cc_library(
     name = "composer",
-    srcs = ["composer.cc"],
-    hdrs = ["composer.h"],
+    srcs = [
+        "composer.cc",
+        "jev_judge.cc",
+    ],
+    hdrs = [
+        "composer.h",
+        "jev_judge.h",
+    ],
     visibility = [
         "//:__subpackages__",
         "//engine:__pkg__",

@@ -55,6 +55,7 @@
 #include "base/vlog.h"
 #include "composer/composition.h"
 #include "composer/composition_input.h"
+#include "composer/jev_judge.h"
 #include "composer/key_event_util.h"
 #include "composer/mode_switching_handler.h"
 #include "composer/table.h"
@@ -750,6 +751,10 @@ bool Composer::ProcessCompositionInput(CompositionInput input) {
 
   position_ = composition_.InsertInput(position_, std::move(input));
   is_new_input_ = false;
+  // 日英判定（ローカルで動く常駐サーバーへの問い合わせ）。英語と判定された
+  // ときだけ、かな組成を生ローマ字に置き換えて半角英数の素通しへ切り替える。
+  // サーバーが動いていない場合は何もせず、従来どおりのかな入力のまま。
+  jev::MaybeSwitchToEnglish(this);
   return true;
 }
 
