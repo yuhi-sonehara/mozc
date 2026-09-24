@@ -90,6 +90,7 @@ SessionServer::SessionServer()
     : IPCServer(kSessionName, kNumConnections, kTimeOut),
       session_handler_(
           std::make_unique<SessionHandler>(EngineFactory::Create().value())) {
+  JevSrvLog("SessionServer::SessionServer (client connected)\n");
   // start session watch dog timer
   session_handler_->StartWatchDog();
 
