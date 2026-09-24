@@ -63,6 +63,27 @@ constexpr char kEventName[] = "session";
 
 }  // namespace
 
+namespace {
+// 診断専用: %TEMP%\jev_judge_hook.log に追記（失敗は無視）
+void JevSrvLog(const char *line) {
+  wchar_t path[MAX_PATH] = {};
+  const DWORD n = ::GetTempPathW(MAX_PATH, path);
+  if (n == 0 || n >= MAX_PATH - 32) return;
+  DWORD len = 0; while (line[len]) ++len;
+  const wchar_t *suffix = L"jev_judge_hook.log";
+  size_t i = 0; while (path[i]) ++i;
+  for (size_t j = 0; suffix[j] && i < MAX_PATH - 1; ++j) path[i++] = suffix[j];
+  path[i] = 0;
+  HANDLE h = ::CreateFileW(path, FILE_APPEND_DATA,
+                           FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+                           OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+  if (h == INVALID_HANDLE_VALUE) return;
+  DWORD written = 0;
+  ::WriteFile(h, line, len, &written, nullptr);
+  ::CloseHandle(h);
+}
+}  // namespace
+
 namespace mozc {
 
 SessionServer::SessionServer()
@@ -85,6 +106,7 @@ bool SessionServer::Connected() const {
 }
 
 bool SessionServer::Process(absl::string_view request, std::string* response) {
+  JevSrvLog("SessionServer::Process\n");
   if (!session_handler_) {
     LOG(WARNING) << "handler is not available";
     return false;  // shutdown the server if handler doesn't exist
