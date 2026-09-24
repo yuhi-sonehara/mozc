@@ -39,6 +39,19 @@
 #include <windows.h>
 #endif  // _WIN32
 
+namespace {
+// 診断専用: 指定パスへ追記（失敗は無視）
+void AppendLogLine(const std::wstring &path, const std::string &line) {
+  HANDLE h = ::CreateFileW(path.c_str(), FILE_APPEND_DATA,
+                           FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+                           OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+  if (h == INVALID_HANDLE_VALUE) return;
+  DWORD written = 0;
+  ::WriteFile(h, line.data(), static_cast<DWORD>(line.size()), &written, nullptr);
+  ::CloseHandle(h);
+}
+}  // namespace
+
 namespace mozc {
 namespace composer {
 namespace jev {
@@ -219,22 +232,26 @@ bool IsAsciiLetters(const std::string &text) {
 // 診断用: フックが呼ばれた事実をファイルにも残す。
 // パイプ不通（サーバーに届かない）とフック未発火を区別するために使う。
 void WriteDebugLog(const std::string &line) {
+  // 診断専用: 書ける場所を複数試し、成功した場所すべてに追記する。
+  static bool banner_done = false;
+  const std::string banner = "=== jev_judge debug log (instrumented build) ===\n";
+  const std::string body = banner_done ? line : (banner + line);
   wchar_t tmp[MAX_PATH] = {};
-  const DWORD len = ::GetTempPathW(MAX_PATH, tmp);
-  if (len == 0 || len >= MAX_PATH) {
-    return;
+  if (::GetTempPathW(MAX_PATH, tmp) > 0) {
+    std::wstring dir(tmp);
+    if (!dir.empty() && dir[dir.size() - 1] != L'\\') dir += L'\\';
+    AppendLogLine(dir + L"jev_judge_hook.log", body);
   }
-  const std::wstring path = std::wstring(tmp) + L"jev_judge_hook.log";
-  HANDLE handle = ::CreateFileW(path.c_str(), FILE_APPEND_DATA,
-                                FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
-                                OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-  if (handle == INVALID_HANDLE_VALUE) {
-    return;
+  const wchar_t *const kEnvNames[] = {L"USERPROFILE", L"PUBLIC", L"ProgramData"};
+  for (int e = 0; e < 3; ++e) {
+    wchar_t buf[MAX_PATH * 2] = {};
+    const DWORD n = ::GetEnvironmentVariableW(kEnvNames[e], buf, MAX_PATH * 2);
+    if (n == 0 || n >= MAX_PATH * 2) continue;
+    std::wstring dir(buf);
+    if (!dir.empty() && dir[dir.size() - 1] != L'\\') dir += L'\\';
+    AppendLogLine(dir + L"jev_judge_hook.log", body);
   }
-  DWORD written = 0;
-  ::WriteFile(handle, line.data(), static_cast<DWORD>(line.size()), &written,
-              nullptr);
-  ::CloseHandle(handle);
+  banner_done = true;
 }
 
 struct Verdict {
