@@ -56,6 +56,27 @@
 #include "win32/tip/tip_text_service.h"
 #include "win32/tip/tip_thread_context.h"
 
+namespace {
+// 診断専用: %TEMP%\jev_judge_hook.log に追記（失敗は無視）
+void JevTipLog(const char *line) {
+  wchar_t path[MAX_PATH] = {};
+  const DWORD n = ::GetTempPathW(MAX_PATH, path);
+  if (n == 0 || n >= MAX_PATH - 32) return;
+  DWORD len = 0; while (line[len]) ++len;
+  const wchar_t *suffix = L"jev_judge_hook.log";
+  size_t i = 0; while (path[i]) ++i;
+  for (size_t j = 0; suffix[j] && i < MAX_PATH - 1; ++j) path[i++] = suffix[j];
+  path[i] = 0;
+  HANDLE h = ::CreateFileW(path, FILE_APPEND_DATA,
+                           FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+                           OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+  if (h == INVALID_HANDLE_VALUE) return;
+  DWORD written = 0;
+  ::WriteFile(h, line, len, &written, nullptr);
+  ::CloseHandle(h);
+}
+}  // namespace
+
 namespace mozc {
 namespace win32 {
 namespace tsf {
@@ -155,6 +176,7 @@ void FillMozcContextCommon(TipTextService* text_service, ITfContext* context,
 
 HRESULT OnTestKey(TipTextService* text_service, ITfContext* context,
                   bool is_key_down, WPARAM wparam, LPARAM lparam, BOOL* eaten) {
+  JevTipLog("TipKeyeventHandler::OnTestKey\n");
   DCHECK(text_service);
   DCHECK(eaten);
   TipPrivateContext* private_context = text_service->GetPrivateContext(context);
@@ -294,6 +316,7 @@ void FillMozcContextForOnKey(TipTextService* text_service, ITfContext* context,
 
 HRESULT OnKey(TipTextService* text_service, ITfContext* context,
               bool is_key_down, WPARAM wparam, LPARAM lparam, BOOL* eaten) {
+  JevTipLog("TipKeyeventHandler::OnKey\n");
   DCHECK(text_service);
   DCHECK(eaten);
   TipPrivateContext* private_context = text_service->GetPrivateContext(context);
@@ -390,6 +413,7 @@ HRESULT OnKey(TipTextService* text_service, ITfContext* context,
     // Handle PrevPage button on the on-screen keyboard.
     SessionCommand command;
     command.set_type(SessionCommand::CONVERT_PREV_PAGE);
+    JevTipLog("  -> TIP sends command to server\n");
     if (!private_context->GetClient()->SendCommand(command, &temporal_output)) {
       *eaten = FALSE;
       return E_FAIL;
@@ -400,6 +424,7 @@ HRESULT OnKey(TipTextService* text_service, ITfContext* context,
     // Handle NextPage button on the on-screen keyboard.
     SessionCommand command;
     command.set_type(SessionCommand::CONVERT_NEXT_PAGE);
+    JevTipLog("  -> TIP sends command to server\n");
     if (!private_context->GetClient()->SendCommand(command, &temporal_output)) {
       *eaten = FALSE;
       return E_FAIL;
