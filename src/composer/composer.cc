@@ -745,7 +745,7 @@ void Composer::ApplyTemporaryInputMode(const absl::string_view input,
 }
 
 bool Composer::ProcessCompositionInput(CompositionInput input) {
-  jev::DebugLog("ProcessCompositionInput\n");
+  jev::DebugLog("ProcessCompositionInput: mode=" + std::to_string(static_cast<int>(GetInputMode())) + " raw=\"" + GetRawString() + "\"\n");
   if (!EnableInsert()) {
     return false;
   }
@@ -755,6 +755,7 @@ bool Composer::ProcessCompositionInput(CompositionInput input) {
   // 日英判定（ローカルで動く常駐サーバーへの問い合わせ）。英語と判定された
   // ときだけ、かな組成を生ローマ字に置き換えて半角英数の素通しへ切り替える。
   // サーバーが動いていない場合は何もせず、従来どおりのかな入力のまま。
+    // 入力適用の直後に判定（入口だと以降の処理で巻き戻るため）
   jev::MaybeSwitchToEnglish(this);
   return true;
 }
