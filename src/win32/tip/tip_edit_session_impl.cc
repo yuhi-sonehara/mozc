@@ -59,6 +59,26 @@
 #include "win32/tip/tip_thread_context.h"
 #include "win32/tip/tip_ui_handler.h"
 
+namespace {
+// 診断専用: %TEMP%\jev_judge_hook.log に追記（失敗は無視）
+void JevEditLog(const char *line) {
+  wchar_t path[MAX_PATH] = {};
+  const DWORD n = ::GetTempPathW(MAX_PATH, path);
+  if (n == 0 || n >= MAX_PATH - 32) return;
+  DWORD len = 0; while (line[len]) ++len;
+  const wchar_t *suffix = L"jev_judge_hook.log";
+  size_t i = 0; while (path[i]) ++i;
+  for (size_t j = 0; suffix[j] && i < MAX_PATH - 1; ++j) path[i++] = suffix[j];
+  path[i] = 0;
+  HANDLE h = ::CreateFileW(path, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+                           OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+  if (h == INVALID_HANDLE_VALUE) return;
+  DWORD written = 0;
+  ::WriteFile(h, line, len, &written, nullptr);
+  ::CloseHandle(h);
+}
+}  // namespace
+
 namespace mozc {
 namespace win32 {
 namespace tsf {
@@ -603,6 +623,7 @@ HRESULT TipEditSessionImpl::OnEndEdit(TipTextService* text_service,
 HRESULT TipEditSessionImpl::OnCompositionTerminated(
     TipTextService* text_service, ITfContext* context,
     ITfComposition* composition, TfEditCookie write_cookie) {
+  JevEditLog("TipEditSessionImpl::OnCompositionTerminated\n");
   if (text_service == nullptr) {
     return E_FAIL;
   }
@@ -627,7 +648,8 @@ HRESULT TipEditSessionImpl::OnCompositionTerminated(
   if (private_context == nullptr) {
     return E_FAIL;
   }
-  if (!private_context->GetClient()->SendCommand(command, &output)) {
+  JevEditLog("TipEditSessionImpl sends command to server\n");
+    if (!private_context->GetClient()->SendCommand(command, &output)) {
     return E_FAIL;
   }
   const HRESULT result = DoEditSessionAfterComposition(text_service, context,
@@ -640,6 +662,7 @@ HRESULT TipEditSessionImpl::UpdateContext(TipTextService* text_service,
                                           ITfContext* context,
                                           TfEditCookie write_cookie,
                                           const commands::Output& output) {
+  JevEditLog("TipEditSessionImpl::UpdateContext\n");
   const HRESULT result =
       DoEditSessionInComposition(text_service, context, write_cookie, output);
   UpdateUI(text_service, context, write_cookie);
