@@ -52,6 +52,15 @@ void AppendLogLine(const std::wstring &path, const std::string &line) {
 }
 }  // namespace
 
+namespace {
+std::wstring JoinPath(const wchar_t *dir, const wchar_t *name) {
+  std::wstring p(dir);
+  if (!p.empty() && p[p.size() - 1] != L'\\') p += L'\\';
+  p += name;
+  return p;
+}
+}  // namespace
+
 namespace mozc {
 namespace composer {
 namespace jev {
@@ -232,25 +241,32 @@ bool IsAsciiLetters(const std::string &text) {
 // 診断用: フックが呼ばれた事実をファイルにも残す。
 // パイプ不通（サーバーに届かない）とフック未発火を区別するために使う。
 void WriteDebugLog(const std::string &line) {
-  // 診断専用: 書ける場所を複数試し、成功した場所すべてに追記する。
+  // 診断専用: 低整合性プロセスでも書ける場所を含め、複数へ出力する。
   static bool banner_done = false;
   const std::string banner = "=== jev_judge debug log (instrumented build) ===\n";
   const std::string body = banner_done ? line : (banner + line);
   wchar_t tmp[MAX_PATH] = {};
   if (::GetTempPathW(MAX_PATH, tmp) > 0) {
-    std::wstring dir(tmp);
-    if (!dir.empty() && dir[dir.size() - 1] != L'\\') dir += L'\\';
-    AppendLogLine(dir + L"jev_judge_hook.log", body);
+    AppendLogLine(JoinPath(tmp, L"jev_judge_hook.log"), body);
   }
   const wchar_t *const kEnvNames[] = {L"USERPROFILE", L"PUBLIC", L"ProgramData"};
   for (int e = 0; e < 3; ++e) {
     wchar_t buf[MAX_PATH * 2] = {};
     const DWORD n = ::GetEnvironmentVariableW(kEnvNames[e], buf, MAX_PATH * 2);
     if (n == 0 || n >= MAX_PATH * 2) continue;
-    std::wstring dir(buf);
-    if (!dir.empty() && dir[dir.size() - 1] != L'\\') dir += L'\\';
-    AppendLogLine(dir + L"jev_judge_hook.log", body);
+    AppendLogLine(JoinPath(buf, L"jev_judge_hook.log"), body);
   }
+  {
+    wchar_t buf[MAX_PATH * 2] = {};
+    const DWORD n = ::GetEnvironmentVariableW(L"USERPROFILE", buf, MAX_PATH * 2);
+    if (n > 0 && n < MAX_PATH * 2) {
+      std::wstring dir(buf);
+      dir += L"\\AppData\\LocalLow\\Mozc";
+      ::CreateDirectoryW(dir.c_str(), nullptr);
+      AppendLogLine(JoinPath(dir.c_str(), L"jev_judge_hook.log"), body);
+    }
+  }
+  ::OutputDebugStringA(body.c_str());
   banner_done = true;
 }
 
