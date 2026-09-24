@@ -215,6 +215,81 @@ bool IsAsciiLetters(const std::string &text) {
   return true;
 }
 
+#ifdef _WIN32
+// 診断用: フックが呼ばれた事実をファイルにも残す。
+// パイプ不通（サーバーに届かない）とフック未発火を区別するために使う。
+void WriteDebugLog(const std::string &line) {
+  wchar_t tmp[MAX_PATH] = {};
+  const DWORD len = ::GetTempPathW(MAX_PATH, tmp);
+  if (len == 0 || len >= MAX_PATH) {
+    return;
+  }
+  const std::wstring path = std::wstring(tmp) + L"jev_judge_hook.log";
+  HANDLE handle = ::CreateFileW(path.c_str(), FILE_APPEND_DATA,
+                                FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+                                OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+  if (handle == INVALID_HANDLE_VALUE) {
+    return;
+  }
+  DWORD written = 0;
+  ::WriteFile(handle, line.data(), static_cast<DWORD>(line.size()), &written,
+              nullptr);
+  ::CloseHandle(handle);
+}
+
+struct Verdict {
+  std::string decision;
+  double confidence = 0.0;
+};
+
+// 判定サーバーへ問い合わせる（生ローマ字と入力モードを送る）。
+Verdict QueryDecision(const std::string &romaji, int mode) {
+  Verdict verdict;
+  const std::string request =
+      std::string("{\"keys\":\"") + JsonEscape(romaji) + "\",\"mode\":" +
+      std::to_string(mode) + ",\"source\":\"mozc\",\"version\":2}";
+  const std::string response = Transact(request);
+  if (response.empty()) {
+    return verdict;
+  }
+  FindStringValue(response, "decision", &verdict.decision);
+  FindNumberValue(response, "confidence", &verdict.confidence);
+  return verdict;
+}
+
+// 診断用: 最初のフック呼び出しでサーバーへ ping を送り、ファイルにも記録する。
+void ReportFirstCall(const std::string &romaji, int mode) {
+  static bool reported = false;
+  if (reported) {
+    return;
+  }
+  reported = true;
+  const std::string note = "first hook call: mode=" + std::to_string(mode) +
+                           " raw=\"" + romaji + "\"\n";
+  WriteDebugLog(note);
+  Transact(std::string("{\"cmd\":\"ping\",\"source\":\"mozc\",\"note\":") +
+           "\"first-hook-call\"}");
+}
+#else  // !_WIN32
+struct Verdict {
+  std::string decision;
+  double confidence = 0.0;
+};
+
+Verdict QueryDecision(const std::string &romaji, int mode) {
+  (void)romaji;
+  (void)mode;
+  return Verdict();
+}
+
+void WriteDebugLog(const std::string &line) { (void)line; }
+
+void ReportFirstCall(const std::string &romaji, int mode) {
+  (void)romaji;
+  (void)mode;
+}
+#endif  // _WIN32
+
 }  // namespace
 
 int Judge::GetTimeoutMsec() {
@@ -226,25 +301,8 @@ int Judge::GetTimeoutMsec() {
 }
 
 bool Judge::IsEnglish(const std::string &romaji) {
-#ifdef _WIN32
-  const std::string request =
-      std::string("{\"keys\":\"") + JsonEscape(romaji) +
-      "\",\"source\":\"mozc\",\"version\":1}";
-  const std::string response = Transact(request);
-  if (response.empty()) {
-    return false;  // サーバー不通・無応答 → 現状動作のまま
-  }
-  std::string decision;
-  double confidence = 0.0;
-  if (!FindStringValue(response, "decision", &decision)) {
-    return false;
-  }
-  FindNumberValue(response, "confidence", &confidence);
-  return decision == "en" && confidence >= kMinConfidence;
-#else
-  (void)romaji;
-  return false;
-#endif  // _WIN32
+  const Verdict verdict = QueryDecision(romaji, -1);
+  return verdict.decision == "en" && verdict.confidence >= kMinConfidence;
 }
 
 bool MaybeSwitchToEnglish(Composer *composer) {
@@ -258,28 +316,39 @@ bool MaybeSwitchToEnglish(Composer *composer) {
   }
 
   const transliteration::TransliterationType mode = composer->GetInputMode();
+  const int mode_value = static_cast<int>(mode);
+  const std::string romaji = composer->GetRawString();
+
+  // 診断: フックが呼ばれた事実を1回だけサーバーとファイルの両方に残す。
+  ReportFirstCall(romaji, mode_value);
+
   if (mode == transliteration::HALF_ASCII ||
       mode == transliteration::FULL_ASCII ||
       mode == transliteration::HALF_ASCII_UPPER ||
       mode == transliteration::FULL_ASCII_UPPER) {
     return false;  // 既に英数素通し
   }
-
-  const std::string romaji = composer->GetRawString();
-  if (romaji.size() < kMinLength || !IsAsciiLetters(romaji)) {
+  if (romaji.empty()) {
     return false;
   }
 
+  // 判定は「英字のみ」でなくても問い合わせる（実機テストで全データを見るため）。
+  // 切り替えの適用条件は従来どおり厳しく保つ。
   in_hook = true;
-  const bool english = Judge::IsEnglish(romaji);
-  if (english) {
+  const Verdict verdict = QueryDecision(romaji, mode_value);
+  bool applied = false;
+  if (romaji.size() >= kMinLength && IsAsciiLetters(romaji) &&
+      verdict.decision == "en" && verdict.confidence >= kMinConfidence) {
     const size_t length = composer->GetLength();
-    composer->DeleteRange(0, length);       // かな組成をいったん消し
+    composer->DeleteRange(0, length);          // かな組成をいったん消し
     composer->InsertCharacterPreedit(romaji);  // 生ローマ字をそのまま入れ直す
     composer->SetTemporaryInputMode(transliteration::HALF_ASCII);
+    applied = true;
+    WriteDebugLog("switch to half-ascii: raw=\"" + romaji + "\" conf=" +
+                  std::to_string(verdict.confidence) + "\n");
   }
   in_hook = false;
-  return english;
+  return applied;
 }
 
 }  // namespace jev
