@@ -745,6 +745,7 @@ void Composer::ApplyTemporaryInputMode(const absl::string_view input,
 }
 
 bool Composer::ProcessCompositionInput(CompositionInput input) {
+  jev::DebugLog("ProcessCompositionInput\n");
   if (!EnableInsert()) {
     return false;
   }
@@ -857,6 +858,7 @@ bool Composer::InsertCharacterKeyAndPreedit(const absl::string_view key,
 }
 
 bool Composer::InsertCharacterKeyEvent(const commands::KeyEvent& key) {
+  jev::DebugLog("InsertCharacterKeyEvent\n");
   if (!EnableInsert()) {
     return false;
   }

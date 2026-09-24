@@ -46,6 +46,7 @@
 #include "base/clock.h"
 #include "base/util.h"
 #include "composer/composer.h"
+#include "composer/jev_judge.h"
 #include "composer/key_event_util.h"
 #include "composer/table.h"
 #include "engine/engine_converter_interface.h"
@@ -508,6 +509,7 @@ bool Session::TestSendKey(commands::Command* command) {
 }
 
 bool Session::SendKey(commands::Command* command) {
+  composer::jev::DebugLog("Session::SendKey\n");
   UpdateTime();
   UpdatePreferences(command);
   TransformInput(command->mutable_input());
@@ -1476,6 +1478,7 @@ absl::Time Session::last_command_time() const {
 }
 
 bool Session::InsertCharacter(commands::Command* command) {
+  composer::jev::DebugLog("Session::InsertCharacter\n");
   if (!command->input().has_key()) {
     LOG(ERROR) << "No key event: " << command->input();
     return false;

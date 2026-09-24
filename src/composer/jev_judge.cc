@@ -305,6 +305,8 @@ bool Judge::IsEnglish(const std::string &romaji) {
   return verdict.decision == "en" && verdict.confidence >= kMinConfidence;
 }
 
+void DebugLog(const std::string &line) { WriteDebugLog(line); }
+
 bool MaybeSwitchToEnglish(Composer *composer) {
   // 自分の書き換え（InsertCharacterPreedit）で再入しないための番人。
   static thread_local bool in_hook = false;

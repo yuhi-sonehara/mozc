@@ -60,6 +60,10 @@ class Judge {
 // Composer::ProcessCompositionInput から呼ばれる。
 bool MaybeSwitchToEnglish(Composer *composer);
 
+// 診断用: %TEMP%\jev_judge_hook.log に1行追記する。
+// 入力経路のどこまで到達しているかを層ごとに確認するために使う。
+void DebugLog(const std::string &line);
+
 }  // namespace jev
 }  // namespace composer
 }  // namespace mozc
