@@ -374,6 +374,7 @@ bool MaybeSwitchToEnglish(Composer *composer) {
   bool applied = false;
     // ハイブリッド: 判定が ja で、いま半角英数モードなら、ひらがなモードへ戻す。
   // 生ローマ字はそのままなので、戻した瞬間に組成全体がかなへ再変換される。
+  // [build-3] 強制再ビルド用の印（キャッシュ全削除後のコールドビルド）
   if (mode == transliteration::HALF_ASCII && romaji.size() >= kMinLength &&
       IsAsciiLetters(romaji) && verdict.decision == "ja" &&
       verdict.confidence >= kMinConfidence) {
