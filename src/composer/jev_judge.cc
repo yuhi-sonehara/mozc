@@ -377,7 +377,11 @@ bool MaybeSwitchToEnglish(Composer *composer) {
     const size_t length = composer->GetLength();
     composer->DeleteRange(0, length);          // かな組成をいったん消し
     composer->InsertCharacterPreedit(romaji);  // 生ローマ字をそのまま入れ直す
-    composer->SetTemporaryInputMode(transliteration::HALF_ASCII);
+    composer->SetInputMode(transliteration::HALF_ASCII);  // 一時モードは入力限りで失効するため恒久モードで切替
+    WriteDebugLog("  after switch: mode=" +
+                  std::to_string(static_cast<int>(composer->GetInputMode())) + " len=" +
+                  std::to_string(static_cast<int>(composer->GetLength())) + " raw=\"" +
+                  composer->GetRawString() + "\"\n");
     applied = true;
     WriteDebugLog("switch to half-ascii: raw=\"" + romaji + "\" conf=" +
                   std::to_string(verdict.confidence) + "\n");
