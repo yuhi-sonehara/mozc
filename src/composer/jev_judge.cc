@@ -372,7 +372,19 @@ bool MaybeSwitchToEnglish(Composer *composer) {
   in_hook = true;
   const Verdict verdict = QueryDecision(romaji, mode_value);
   bool applied = false;
-  if (romaji.size() >= kMinLength && IsAsciiLetters(romaji) &&
+    // ハイブリッド: 判定が ja で、いま半角英数モードなら、ひらがなモードへ戻す。
+  // 生ローマ字はそのままなので、戻した瞬間に組成全体がかなへ再変換される。
+  if (mode == transliteration::HALF_ASCII && romaji.size() >= kMinLength &&
+      IsAsciiLetters(romaji) && verdict.decision == "ja" &&
+      verdict.confidence >= kMinConfidence) {
+    composer->SetInputMode(transliteration::HIRAGANA);
+    WriteDebugLog("switch to hiragana: raw=\"" + romaji + "\" conf=" +
+                  std::to_string(verdict.confidence) + " -> mode=" +
+                  std::to_string(static_cast<int>(composer->GetInputMode())) +
+                  " len=" + std::to_string(static_cast<int>(composer->GetLength())) + "\n");
+    return true;
+  }
+if (romaji.size() >= kMinLength && IsAsciiLetters(romaji) &&
       verdict.decision == "en" && verdict.confidence >= kMinConfidence) {
     const size_t length = composer->GetLength();
     composer->DeleteRange(0, length);          // かな組成をいったん消し
