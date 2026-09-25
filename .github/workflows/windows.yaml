@@ -60,6 +60,13 @@ jobs:
         run: |
           bazelisk build package --config release_build
 
+      - name: upload mozc_server_exe (fork)
+        uses: actions/upload-artifact@v4
+        with:
+          name: mozc_server_exe
+          path: |
+            **/mozc_server.exe
+          if-no-files-found: warn
       - name: upload Mozc64_x64.msi
         uses: actions/upload-artifact@v7
         with:
