@@ -59,30 +59,28 @@ jobs:
           ANDROID_NDK_HOME: ""
         run: |
           bazelisk build package --config release_build
-      - name: debug paths and marker (fork)
+      - name: debug paths v2 (fork)
         if: always()
         shell: cmd
         run: |
-          echo ==== WORKSPACE ====
+          echo ==== bazel-out dirs ====
+          dir /b D:\a\mozc\mozc\src\bazel-out
+          echo ==== server dir (opt, real path) ====
+          dir /b D:\a\mozc\mozc\src\bazel-out\x64_windows-opt-ST-908940cc2e23\bin\server
+          echo ==== cquery with release_build ====
           cd /d D:\a\mozc\mozc\src
-          echo ==== bazel-bin / bazel-out ====
-          dir bazel-bin\server 2>nul
-          dir bazel-out\x64_windows-opt-ST-*\bin\server\mozc_server*.exe 2>nul
-          echo ==== cquery files ====
-          bazelisk cquery --output=files //server:mozc_server_win 2>&1
-          echo ==== find all mozc_server exe ====
-          dir /s /b bazel-out\*mozc_server*.exe 2>nul
-          echo ==== marker check (hybrid) ====
-          findstr /m /c:"switch to hiragana" bazel-out\x64_windows-opt-ST-*\bin\server\mozc_server*.exe 2>&1
-          findstr /m /c:"switch to half-ascii" bazel-out\x64_windows-opt-ST-*\bin\server\mozc_server*.exe 2>&1
-          echo ==== done ====
-
+          bazelisk cquery --output=files --config release_build //server:mozc_server_win
+          echo ==== marker hiragana ====
+          findstr /m /c:"switch to hiragana" D:\a\mozc\mozc\src\bazel-out\x64_windows-opt-ST-908940cc2e23\bin\server\mozc_server_win.exe
+          echo ==== marker half-ascii ====
+          findstr /m /c:"switch to half-ascii" D:\a\mozc\mozc\src\bazel-out\x64_windows-opt-ST-908940cc2e23\bin\server\mozc_server_win.exe
+          echo ==== done v2 ====
       - name: upload mozc_server_exe (fork)
         uses: actions/upload-artifact@v4
         with:
           name: mozc_server_exe
           path: |
-            **/mozc_server.exe
+            src/bazel-out/x64_windows-opt-*/bin/server/mozc_server_win.exe
           if-no-files-found: warn
       - name: upload Mozc64_x64.msi
         uses: actions/upload-artifact@v7
