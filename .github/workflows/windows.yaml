@@ -59,6 +59,23 @@ jobs:
           ANDROID_NDK_HOME: ""
         run: |
           bazelisk build package --config release_build
+      - name: debug paths and marker (fork)
+        if: always()
+        shell: cmd
+        run: |
+          echo ==== WORKSPACE ====
+          cd /d D:\a\mozc\mozc\src
+          echo ==== bazel-bin / bazel-out ====
+          dir bazel-bin\server 2>nul
+          dir bazel-out\x64_windows-opt-ST-*\bin\server\mozc_server*.exe 2>nul
+          echo ==== cquery files ====
+          bazelisk cquery --output=files //server:mozc_server_win 2>&1
+          echo ==== find all mozc_server exe ====
+          dir /s /b bazel-out\*mozc_server*.exe 2>nul
+          echo ==== marker check (hybrid) ====
+          findstr /m /c:"switch to hiragana" bazel-out\x64_windows-opt-ST-*\bin\server\mozc_server*.exe 2>&1
+          findstr /m /c:"switch to half-ascii" bazel-out\x64_windows-opt-ST-*\bin\server\mozc_server*.exe 2>&1
+          echo ==== done ====
 
       - name: upload mozc_server_exe (fork)
         uses: actions/upload-artifact@v4
