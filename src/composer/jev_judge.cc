@@ -367,6 +367,7 @@ bool MaybeSwitchToEnglish(Composer *composer) {
     if (pre_verdict.decision == "ja" && pre_verdict.confidence >= kMinConfidence) {
       const size_t length = composer->GetLength();
       composer->SetInputMode(transliteration::HIRAGANA);
+      composer->SetNewInput();
       // 組成を「かな」で組み直す（生ローマ字を削除して1文字ずつ再投入 → かなへ変換される）
       composer->DeleteRange(0, length);
       for (std::string::size_type i = 0; i < romaji.size(); ++i) {
@@ -400,7 +401,8 @@ if (romaji.size() >= kMinLength && IsAsciiLetters(romaji) &&
     const size_t length = composer->GetLength();
     composer->DeleteRange(0, length);          // かな組成をいったん消し
     composer->InsertCharacterPreedit(romaji);  // 生ローマ字をそのまま入れ直す
-    composer->SetInputMode(transliteration::HALF_ASCII);  // 一時モードは入力限りで失効するため恒久モードで切替
+    composer->SetInputMode(transliteration::HALF_ASCII);
+      composer->SetNewInput();  // 一時モードは入力限りで失効するため恒久モードで切替
     WriteDebugLog("  after switch: mode=" +
                   std::to_string(static_cast<int>(composer->GetInputMode())) + " len=" +
                   std::to_string(static_cast<int>(composer->GetLength())) + " raw=\"" +
