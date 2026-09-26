@@ -365,11 +365,18 @@ bool MaybeSwitchToEnglish(Composer *composer) {
     const Verdict pre_verdict = QueryDecision(romaji, mode_value);
     in_hook = false;
     if (pre_verdict.decision == "ja" && pre_verdict.confidence >= kMinConfidence) {
+      const size_t length = composer->GetLength();
       composer->SetInputMode(transliteration::HIRAGANA);
+      // 組成を「かな」で組み直す（生ローマ字を削除して1文字ずつ再投入 → かなへ変換される）
+      composer->DeleteRange(0, length);
+      for (std::string::size_type i = 0; i < romaji.size(); ++i) {
+        composer->InsertCharacter(romaji.substr(i, 1));
+      }
       WriteDebugLog("switch to hiragana: raw=\"" + romaji + "\" conf=" +
                     std::to_string(pre_verdict.confidence) + " -> mode=" +
                     std::to_string(static_cast<int>(composer->GetInputMode())) +
-                    " len=" + std::to_string(static_cast<int>(composer->GetLength())) + "\n");
+                    " len=" + std::to_string(static_cast<int>(composer->GetLength())) +
+                    " rebuilt=\"" + composer->GetRawString() + "\"\n");
       return true;
     }
   }
