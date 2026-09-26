@@ -357,6 +357,19 @@ bool MaybeSwitchToEnglish(Composer *composer) {
   // 診断: フックが呼ばれた事実を1回だけサーバーとファイルの両方に残す。
   ReportFirstCall(romaji, mode_value);
 
+  // ハイブリッド: 判定が ja で、いま半角英数モードなら、ひらがなモードへ戻す。
+  // 生ローマ字はそのままなので、戻した瞬間に組成全体がかなへ再変換される。
+  // 注意: 下の「英数モードなら即 return」ガードより【前】に置くこと（後ろだとデッドコードになる）。
+  if (mode == transliteration::HALF_ASCII && romaji.size() >= kMinLength &&
+      IsAsciiLetters(romaji) && verdict.decision == "ja" &&
+      verdict.confidence >= kMinConfidence) {
+    composer->SetInputMode(transliteration::HIRAGANA);
+    WriteDebugLog("switch to hiragana: raw=\"" + romaji + "\" conf=" +
+                  std::to_string(verdict.confidence) + " -> mode=" +
+                  std::to_string(static_cast<int>(composer->GetInputMode())) +
+                  " len=" + std::to_string(static_cast<int>(composer->GetLength())) + "\n");
+    return true;
+  }
   if (mode == transliteration::HALF_ASCII ||
       mode == transliteration::FULL_ASCII ||
       mode == transliteration::HALF_ASCII_UPPER ||
@@ -372,19 +385,6 @@ bool MaybeSwitchToEnglish(Composer *composer) {
   in_hook = true;
   const Verdict verdict = QueryDecision(romaji, mode_value);
   bool applied = false;
-    // ハイブリッド: 判定が ja で、いま半角英数モードなら、ひらがなモードへ戻す。
-  // 生ローマ字はそのままなので、戻した瞬間に組成全体がかなへ再変換される。
-  // [build-3] 強制再ビルド用の印（キャッシュ全削除後のコールドビルド）
-  if (mode == transliteration::HALF_ASCII && romaji.size() >= kMinLength &&
-      IsAsciiLetters(romaji) && verdict.decision == "ja" &&
-      verdict.confidence >= kMinConfidence) {
-    composer->SetInputMode(transliteration::HIRAGANA);
-    WriteDebugLog("switch to hiragana: raw=\"" + romaji + "\" conf=" +
-                  std::to_string(verdict.confidence) + " -> mode=" +
-                  std::to_string(static_cast<int>(composer->GetInputMode())) +
-                  " len=" + std::to_string(static_cast<int>(composer->GetLength())) + "\n");
-    return true;
-  }
 if (romaji.size() >= kMinLength && IsAsciiLetters(romaji) &&
       verdict.decision == "en" && verdict.confidence >= kMinConfidence) {
     const size_t length = composer->GetLength();
