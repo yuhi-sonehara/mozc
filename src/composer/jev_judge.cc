@@ -67,7 +67,8 @@ namespace jev {
 namespace {
 
 // これ未満の確信度では切り替えない（判定器の「英語」の最低ライン）。
-constexpr double kMinConfidence = 0.85;
+constexpr double kMinConfidence = 0.85;      // en 判定用（従来どおり）
+constexpr double kMinConfidenceJa = 0.90;    // ja 判定用（0.90 未満では切り替えない: hel=0.85 の誤変換防止）
 // これ未満の長さでは問い合わせない（誤爆を避ける）。
 constexpr size_t kMinLength = 3;
 // 1 回の呼び出しで許す待ち時間の上限（ミリ秒）。IME を止めないための上限。
@@ -364,7 +365,7 @@ bool MaybeSwitchToEnglish(Composer *composer) {
     in_hook = true;
     const Verdict pre_verdict = QueryDecision(romaji, mode_value);
     in_hook = false;
-    if (pre_verdict.decision == "ja" && pre_verdict.confidence >= kMinConfidence) {
+    if (pre_verdict.decision == "ja" && pre_verdict.confidence >= kMinConfidenceJa) {
       const size_t length = composer->GetLength();
       composer->SetInputMode(transliteration::HIRAGANA);
       composer->SetNewInput();
