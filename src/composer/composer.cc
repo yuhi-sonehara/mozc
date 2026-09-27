@@ -745,7 +745,7 @@ void Composer::ApplyTemporaryInputMode(const absl::string_view input,
 }
 
 bool Composer::ProcessCompositionInput(CompositionInput input) {
-  jev::DebugLog("ProcessCompositionInput: mode=" + std::to_string(static_cast<int>(GetInputMode())) + " raw=\"" + GetRawString() + "\"\n");
+  jev::DebugLog("ProcessCompositionInput: mode=" + std::to_string(static_cast<int>(GetInputMode())) + " raw=\"" + GetRawString() + "\" preedit=\"" + GetStringForPreedit() + "\"\n");
   if (!EnableInsert()) {
     return false;
   }
