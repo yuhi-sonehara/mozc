@@ -142,6 +142,7 @@ Precomposition	ASCII	InsertCharacter
 Precomposition	Backspace	Revert
 Precomposition	Ctrl Backspace	Undo
 Precomposition	Ctrl Shift Space	InsertFullSpace
+Precomposition	Ctrl Space	ToggleAlphanumericMode
 Precomposition	Eisu	ToggleAlphanumericMode
 Precomposition	Hankaku/Zenkaku	IMEOff
 Precomposition	Hiragana	CompositionModeHiragana
