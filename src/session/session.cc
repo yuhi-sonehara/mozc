@@ -2317,6 +2317,11 @@ bool Session::StopKeyToggling(commands::Command* command) {
 
 bool Session::ToggleAlphanumericMode(commands::Command* command) {
   command->mutable_output()->set_consumed(true);
+  // Fork fix: without EnsureIMEIsOn(), toggling from a state where the IME was
+  // effectively off leaves the client in Direct Input (A) instead of
+  // Half-alphanumeric (A_), so the mode change never takes effect. This mirrors
+  // CompositionModeHalfASCII, which works correctly.
+  EnsureIMEIsOn();
   context_->mutable_composer()->ToggleInputMode();
 
   OutputFromState(command);
