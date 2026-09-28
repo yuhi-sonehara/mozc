@@ -6369,6 +6369,9 @@ TEST_F(SessionTest, Issue2282319) {
 TEST_F(SessionTest, Issue2297060) {
   // This is a unittest against http://b/2297060.
   // Ctrl-Space is not working
+  // Fork note: MSIME keymap now binds Ctrl+Space to ToggleAlphanumericMode,
+  // so Ctrl+Space is consumed in Precomposition (was intentionally passed
+  // through to the OS before this change).
   config::Config config;
   config.set_session_keymap(config::Config::MSIME);
 
@@ -6383,7 +6386,7 @@ TEST_F(SessionTest, Issue2297060) {
 
   commands::Command command;
   EXPECT_TRUE(SendKey("Ctrl Space", &session, &command));
-  EXPECT_FALSE(command.output().consumed());
+  EXPECT_TRUE(command.output().consumed());
 }
 
 TEST_F(SessionTest, Issue2379374) {
