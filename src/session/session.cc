@@ -2316,17 +2316,15 @@ bool Session::StopKeyToggling(commands::Command* command) {
 }
 
 bool Session::ToggleAlphanumericMode(commands::Command* command) {
-  // Fork diagnostic: verify this command is actually reached by Ctrl+Space.
-  composer::jev::DebugLog("Session::ToggleAlphanumericMode reached\n");
-  // Fork fix: delegate to the proven code paths. The GUI menu's "half-width
-  // alphanumeric" item routes through CompositionModeHalfASCII, which works
-  // (status: activated=true, mode=HALF_ASCII). Calling Composer::ToggleInputMode
-  // directly only flips the composer's translator and left the client in
-  // Direct Input (activated=false) instead. Reuse the working paths verbatim.
-  if (context_->composer().GetInputMode() == transliteration::HALF_ASCII) {
-    return CompositionModeHiragana(command);
-  }
-  return CompositionModeHalfASCII(command);
+  command->mutable_output()->set_consumed(true);
+  // Fork fix: call EnsureIMEIsOn() so that toggling from an IME-off state does
+  // not leave the client in Direct Input. Verified working on device together
+  // with the MSIME keymap (Ctrl+Space -> ToggleAlphanumericMode).
+  EnsureIMEIsOn();
+  context_->mutable_composer()->ToggleInputMode();
+
+  OutputFromState(command);
+  return true;
 }
 
 bool Session::DeleteCandidateFromHistory(commands::Command* command) {
