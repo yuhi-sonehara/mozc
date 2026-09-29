@@ -242,21 +242,13 @@ bool IsAsciiLetters(const std::string &text) {
 // 診断用: フックが呼ばれた事実をファイルにも残す。
 // パイプ不通（サーバーに届かない）とフック未発火を区別するために使う。
 void WriteDebugLog(const std::string &line) {
-  // 診断専用: 低整合性プロセスでも書ける場所を含め、複数へ出力する。
+  // クラッシュ対策: 以前は 5 箇所（TEMP / USERPROFILE / PUBLIC / ProgramData /
+  // LocalLow\\Mozc）へ毎回書き込んでいた。1 打鍵ごとの同期 I/O が 5 倍になり、
+  // ディスク I/O の負荷でアプリが固まる一因になっていたため、記録は実際に参照
+  // している LocalLow の 1 箇所だけに絞る（内容は従来と同一）。
   static bool banner_done = false;
   const std::string banner = "=== jev_judge debug log (instrumented build) ===\n";
   const std::string body = banner_done ? line : (banner + line);
-  wchar_t tmp[MAX_PATH] = {};
-  if (::GetTempPathW(MAX_PATH, tmp) > 0) {
-    AppendLogLine(JoinPath(tmp, L"jev_judge_hook.log"), body);
-  }
-  const wchar_t *const kEnvNames[] = {L"USERPROFILE", L"PUBLIC", L"ProgramData"};
-  for (int e = 0; e < 3; ++e) {
-    wchar_t buf[MAX_PATH * 2] = {};
-    const DWORD n = ::GetEnvironmentVariableW(kEnvNames[e], buf, MAX_PATH * 2);
-    if (n == 0 || n >= MAX_PATH * 2) continue;
-    AppendLogLine(JoinPath(buf, L"jev_judge_hook.log"), body);
-  }
   {
     wchar_t buf[MAX_PATH * 2] = {};
     const DWORD n = ::GetEnvironmentVariableW(L"USERPROFILE", buf, MAX_PATH * 2);
