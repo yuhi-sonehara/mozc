@@ -400,10 +400,13 @@ bool MaybeSwitchToEnglish(Composer *composer) {
 if (romaji.size() >= kMinLength && IsAsciiLetters(romaji) &&
       verdict.decision == "en" && verdict.confidence >= kMinConfidence) {
     const size_t length = composer->GetLength();
+    // Fork fix: モードを先に切り替えてから組み直す。順序が逆だと、既に入力済みの
+    // 文字が全角のまま残り、「ｖｓｃode」のように先頭だけ全角になる。
+    // 日本語切替パス（SetInputMode -> SetNewInput -> DeleteRange -> 再投入）と同じ順序に揃える。
+    composer->SetInputMode(transliteration::HALF_ASCII);
+    composer->SetNewInput();  // 一時モードは入力限りで失効するため恒久モードで切替
     composer->DeleteRange(0, length);          // かな組成をいったん消し
     composer->InsertCharacterPreedit(romaji);  // 生ローマ字をそのまま入れ直す
-    composer->SetInputMode(transliteration::HALF_ASCII);
-      composer->SetNewInput();  // 一時モードは入力限りで失効するため恒久モードで切替
     WriteDebugLog("  after switch: mode=" +
                   std::to_string(static_cast<int>(composer->GetInputMode())) + " len=" +
                   std::to_string(static_cast<int>(composer->GetLength())) + " raw=\"" +
