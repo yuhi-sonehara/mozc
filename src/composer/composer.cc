@@ -745,7 +745,9 @@ void Composer::ApplyTemporaryInputMode(const absl::string_view input,
 }
 
 bool Composer::ProcessCompositionInput(CompositionInput input) {
-  jev::DebugLog("ProcessCompositionInput: mode=" + std::to_string(static_cast<int>(GetInputMode())) + " raw=\"" + GetRawString() + "\" preedit=\"" + GetStringForPreedit() + "\"\n");
+  // クラッシュ対策: 打鍵ごとに全組成文字列をファイルへ書く計装を削除した。
+  // 1 打鍵ごとの同期 I/O が最大の負荷源（ログ全体の 7 割超）で、アプリの
+  // フリーズに関与していた。切替イベントのログ（switch to ...）は維持する。
   if (!EnableInsert()) {
     return false;
   }
