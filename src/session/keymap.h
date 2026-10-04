@@ -57,6 +57,10 @@ struct DirectInputState {
     COMPOSITION_MODE_FULL_ALPHANUMERIC,
     COMPOSITION_MODE_HALF_ALPHANUMERIC,
     RECONVERT,
+    // Fork: 直接入力状態からの英数⇔かなトグル（Ctrl+Space）。
+    // これが無いと ms-ime.tsv の DirectInput 節に ToggleAlphanumericMode を
+    // 書いてもキーマップ読み込み時に「未知のコマンド」として弾かれる。
+    TOGGLE_ALPHANUMERIC_MODE,
   };
 };
 

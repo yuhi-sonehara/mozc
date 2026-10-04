@@ -60,6 +60,24 @@ class Judge {
 // Composer::ProcessCompositionInput から呼ばれる。
 bool MaybeSwitchToEnglish(Composer *composer);
 
+// 入力モードの遷移がどこから来たかを表す。
+// 自動切替（判定フック）とユーザー操作（Ctrl+Space 等のトグル）を区別し、
+// 確定時の自動復帰を「判定器由来だけ」に限定するために使う。
+enum class ModeOrigin {
+  kDefault,             // まだ遷移していない / 由来不明
+  kAutoSwitchedByJudge,  // 日英判定フックが自動的に切り替えた
+  kManualByUser,         // ユーザー操作（トグル・メニュー等）で切り替えた
+};
+
+// 現在のモード遷移の由来を記録する。
+void SetModeOrigin(ModeOrigin origin);
+
+// 現在のモード遷移の由来を返す。
+ModeOrigin GetModeOrigin();
+
+// 記録した由来を kDefault に戻す。
+void ClearModeOrigin();
+
 // 診断用: %TEMP%\jev_judge_hook.log に1行追記する。
 // 入力経路のどこまで到達しているかを層ごとに確認するために使う。
 void DebugLog(const std::string &line);

@@ -71,6 +71,10 @@ constexpr double kMinConfidence = 0.85;      // en 判定用（従来どおり�
 constexpr double kMinConfidenceJa = 0.90;    // ja 判定用（0.90 未満では切り替えない: hel=0.85 の誤変換防止）
 // これ未満の長さでは問い合わせない（誤爆を避ける）。
 constexpr size_t kMinLength = 3;
+// 末尾セグメント（最後の空白以降）に許可する最小長。
+// 2 打鍵語（助詞「に」など）の救済のため kMinLength より緩くする。
+// 1 文字は誤爆するので 2 文字を下限とする。
+constexpr size_t kMinSegmentLength = 2;
 // 1 回の呼び出しで許す待ち時間の上限（ミリ秒）。IME を止めないための上限。
 #ifdef _WIN32
 constexpr DWORD kIpcTimeoutMsec = 5;
@@ -238,6 +242,24 @@ bool IsAsciiLetters(const std::string &text) {
   return true;
 }
 
+// 末尾セグメント = 最後の空白以降の部分。空白が無ければ入力全体。
+// 「web wo」のように空白入りの入力を判定に回すために使う。
+//   prefix   : "web "（末尾セグメントより前の部分。判定はしない）
+//   segment  : "wo"    （判定対象）
+// 末尾の空白のみが入力されているときは segment が空になるので false。
+bool SplitTrailingSegment(const std::string &romaji, std::string *prefix,
+                          std::string *segment) {
+  const size_t space = romaji.find_last_of(' ');
+  if (space == std::string::npos) {
+    prefix->clear();
+    *segment = romaji;
+  } else {
+    *prefix = romaji.substr(0, space + 1);
+    *segment = romaji.substr(space + 1);
+  }
+  return !segment->empty();
+}
+
 #ifdef _WIN32
 // 診断用: フックが呼ばれた事実をファイルにも残す。
 // パイプ不通（サーバーに届かない）とフック未発火を区別するために使う。
@@ -318,6 +340,9 @@ void ReportFirstCall(const std::string &romaji, int mode) {
 
 }  // namespace
 
+// 現在のモード遷移の由来。IME サーバーは単一スレッドなので 1 つで足りる。
+ModeOrigin g_mode_origin = ModeOrigin::kDefault;
+
 int Judge::GetTimeoutMsec() {
 #ifdef _WIN32
   return static_cast<int>(kIpcTimeoutMsec);
@@ -332,6 +357,15 @@ bool Judge::IsEnglish(const std::string &romaji) {
 }
 
 void DebugLog(const std::string &line) { WriteDebugLog(line); }
+
+void SetModeOrigin(ModeOrigin origin) {
+  // IME サーバーは単一スレッドなので状態は 1 つで足りる（thread_local 不要）。
+  g_mode_origin = origin;
+}
+
+ModeOrigin GetModeOrigin() { return g_mode_origin; }
+
+void ClearModeOrigin() { g_mode_origin = ModeOrigin::kDefault; }
 
 bool MaybeSwitchToEnglish(Composer *composer) {
   // 自分の書き換え（InsertCharacterPreedit）で再入しないための番人。
@@ -352,25 +386,59 @@ bool MaybeSwitchToEnglish(Composer *composer) {
 
   // ハイブリッド: 半角英数モードで日本語判定なら、ひらがなモードへ戻す。
   // 下の「英数モードなら即 return」ガードより前に置く必要があるため、ここで自前で判定を取る。
-  if (mode == transliteration::HALF_ASCII && romaji.size() >= kMinLength &&
-      IsAsciiLetters(romaji)) {
+  //
+  // 判定対象は「最後の空白以降のセグメント」だけ。半角英数で「web 」まで打った
+  // 後の「web wo」は IsAsciiLetters が false になり判定に一届かず、そのままだと
+  // 文頭の英単語の後ろで日本語が打てなくなる（実測: スペース入り raw の判定依頼は 0 件）。
+  // セグメントは 2 文字以上なら問い合わせる（助詞「に」など 2 打鍵語の救済）。
+  std::string prefix;
+  std::string segment;
+  if (mode == transliteration::HALF_ASCII &&
+      SplitTrailingSegment(romaji, &prefix, &segment) &&
+      segment.size() >= kMinSegmentLength && IsAsciiLetters(segment)) {
     in_hook = true;
-    const Verdict pre_verdict = QueryDecision(romaji, mode_value);
+    const Verdict pre_verdict = QueryDecision(segment, mode_value);
     in_hook = false;
-    if (pre_verdict.decision == "ja" && pre_verdict.confidence >= kMinConfidenceJa) {
-      const size_t length = composer->GetLength();
-      composer->SetInputMode(transliteration::HIRAGANA);
-      composer->SetNewInput();
-      // 組成を「かな」で組み直す（生ローマ字を削除して1文字ずつ再投入 → かなへ変換される）
-      composer->DeleteRange(0, length);
-      for (std::string::size_type i = 0; i < romaji.size(); ++i) {
-        composer->InsertCharacter(romaji.substr(i, 1));
+    if (pre_verdict.decision == "ja" &&
+        pre_verdict.confidence >= kMinConfidenceJa) {
+      // 末尾セグメントだけをかなへ組み直す。プレフィックス（"web "）は
+      // そのまま半角英数のチャンクとして残す。
+      //
+      // CharChunk は生成時の transliterator を保持するため、モード切替の
+      // あとから書き直したプレフィックスはひらがな変換
+      // （LOCAL → HIRAGANA → 全角化）を受けてしまう。プレフィックスを
+      // 半角のまま残すには、モード切替のあとからプレフィックスを
+      // 書き直さず、組んだまま触らないことが必須。したがって順序は
+      //   末尾セグメントだけ消す → モード変更 → SetNewInput → 末尾だけ再投入
+      // とし、プレフィックスには触れない。
+      //
+      // プレフィックス無しのときは従来どおり全消ししてから組み直す
+      // （順序: モード変更 → SetNewInput → DeleteRange → 再投入）。
+      const size_t total_length = composer->GetLength();
+      if (prefix.empty()) {
+        composer->SetInputMode(transliteration::HIRAGANA);
+        composer->SetNewInput();
+        composer->DeleteRange(0, total_length);
+      } else {
+        // 半角英数モードでは生ローマ字 1 文字 = preedit 1 文字なので、
+        // プレフィックスの長さはそのまま.DeleteRange の開始位置になる。
+        const size_t prefix_length = prefix.size();
+        if (prefix_length < total_length) {
+          composer->DeleteRange(prefix_length, total_length - prefix_length);
+        }
+        composer->SetInputMode(transliteration::HIRAGANA);
+        composer->SetNewInput();
       }
-      WriteDebugLog("switch to hiragana: raw=\"" + romaji + "\" conf=" +
+      for (std::string::size_type i = 0; i < segment.size(); ++i) {
+        composer->InsertCharacter(segment.substr(i, 1));
+      }
+      SetModeOrigin(ModeOrigin::kAutoSwitchedByJudge);
+      WriteDebugLog("switch to hiragana: raw=\"" + romaji + "\" segment=\"" +
+                    segment + "\" conf=" +
                     std::to_string(pre_verdict.confidence) + " -> mode=" +
                     std::to_string(static_cast<int>(composer->GetInputMode())) +
                     " len=" + std::to_string(static_cast<int>(composer->GetLength())) +
-                    " rebuilt=\"" + composer->GetRawString() + "\"\n");
+                    " preedit=\"" + composer->GetStringForPreedit() + "\"\n");
       return true;
     }
   }

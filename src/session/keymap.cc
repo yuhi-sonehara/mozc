@@ -482,6 +482,8 @@ void KeyMapManager::InitCommandData() {
                           DirectInputState::NONE);
   }
   RegisterDirectCommand("Reconvert", DirectInputState::RECONVERT);
+  RegisterDirectCommand("ToggleAlphanumericMode",
+                        DirectInputState::TOGGLE_ALPHANUMERIC_MODE);
 
   // Precomposition
   RegisterPrecompositionCommand("IMEOff", PrecompositionState::IME_OFF);

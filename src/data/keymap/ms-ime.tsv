@@ -130,6 +130,7 @@ Conversion	Up	ConvertPrev
 Conversion	VirtualLeft	SegmentWidthShrink
 Conversion	VirtualRight	SegmentWidthExpand
 Conversion	VirtualEnter	CommitOnlyFirstSegment
+DirectInput	Ctrl Space	ToggleAlphanumericMode
 DirectInput	Eisu	IMEOn
 DirectInput	F13	IMEOn
 DirectInput	Hankaku/Zenkaku	IMEOn

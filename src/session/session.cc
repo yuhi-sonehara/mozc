@@ -611,6 +611,11 @@ bool Session::SendKeyDirectInputState(commands::Command* command) {
       return EchoBackAndClearUndoContext(command);
     case keymap::DirectInputState::RECONVERT:
       return RequestConvertReverse(command);
+    case keymap::DirectInputState::TOGGLE_ALPHANUMERIC_MODE:
+      // 直接入力（IME オフ相当）からの英数⇔かなトグル。
+      // ToggleAlphanumericMode 側が EnsureIMEIsOn() で PRECOMPOSITION へ
+      // 移したうえでトグルするため、DirectInput からでも抜ける。
+      return ToggleAlphanumericMode(command);
   }
   return false;
 }
@@ -1793,6 +1798,19 @@ bool Session::CommitInternal(commands::Command* command,
 
   SetSessionState(ImeContext::PRECOMPOSITION, context_.get());
 
+  // Fork: 日英判定フックが「日本語と判断した」理由でひらがなへ切り替えた
+  // 場合だけ、確定後に半角英数へ自動復帰する。ユーザーが Ctrl+Space 等で
+  // 自分で切り替えた場合（kManualByUser）はユーザーの意図を巻き込まない
+  // よう何もしない。
+  // 注: 直上の SetSessionState が Composer::Reset() を呼び、
+  // input mode は comeback (=ひらがな) へ戻っているため、ここで戻す。
+  if (composer::jev::GetModeOrigin() ==
+          composer::jev::ModeOrigin::kAutoSwitchedByJudge &&
+      context_->composer().GetInputMode() == transliteration::HIRAGANA) {
+    SwitchInputMode(transliteration::HALF_ASCII, context_->mutable_composer());
+    composer::jev::ClearModeOrigin();
+  }
+
   if (trigger_zero_query_suggest) {
     Suggest(command->input());
   }
@@ -2321,6 +2339,10 @@ bool Session::ToggleAlphanumericMode(commands::Command* command) {
   // not leave the client in Direct Input. Verified working on device together
   // with the MSIME keymap (Ctrl+Space -> ToggleAlphanumericMode).
   EnsureIMEIsOn();
+  // ユーザー操作による意図的な切替であることを記録する。確定時の自動復帰
+  // （kAutoSwitchedByJudge のときだけ HALF_ASCII へ戻す）をユーザー意図で
+  // 打ち消すために使う。
+  composer::jev::SetModeOrigin(composer::jev::ModeOrigin::kManualByUser);
   context_->mutable_composer()->ToggleInputMode();
 
   OutputFromState(command);
