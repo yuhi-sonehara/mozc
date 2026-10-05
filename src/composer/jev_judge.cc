@@ -228,14 +228,21 @@ std::string Transact(const std::string &request) {
 
 #endif  // _WIN32
 
-// 生ローマ字列が英字のみかどうか。
-bool IsAsciiLetters(const std::string &text) {
+// 生ローマ字列が判定に回してよいキー列（英字・数字・'-'）かどうか。
+// 長音（'-'）を含む日本語ローマ字（de-ta = でーた、sa-ba- = さーばー 等）と
+// 数字入りの打鍵を判定に回すため、英字のみ（旧 IsAsciiLetters）から緩和した
+// （2026-10-05）。安全側の根拠（実測 2026-09-28〜10-05）: 死判定ゲートは
+// [a-z0-9-] のみを対象とし、'-' は生存（長音）・数字列は keep（2026/123/3 で実測）
+// のため切替を誘発しない。sim --allow-keys-punct で回帰なし
+// （cases 42/44・bench 69/74・新規誤爆ゼロ）。
+bool IsJudgeableKeys(const std::string &text) {
   if (text.empty()) {
     return false;
   }
   for (const char c : text) {
-    const bool is_alpha = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
-    if (!is_alpha) {
+    const bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                    (c >= '0' && c <= '9') || c == '-';
+    if (!ok) {
       return false;
     }
   }
@@ -388,14 +395,16 @@ bool MaybeSwitchToEnglish(Composer *composer) {
   // 下の「英数モードなら即 return」ガードより前に置く必要があるため、ここで自前で判定を取る。
   //
   // 判定対象は「最後の空白以降のセグメント」だけ。半角英数で「web 」まで打った
-  // 後の「web wo」は IsAsciiLetters が false になり判定に一届かず、そのままだと
+  // 後の「web wo」は英字のみのゲートでは判定に一届かず、そのままだと
   // 文頭の英単語の後ろで日本語が打てなくなる（実測: スペース入り raw の判定依頼は 0 件）。
   // セグメントは 2 文字以上なら問い合わせる（助詞「に」など 2 打鍵語の救済）。
+  // 対象キーは英字・数字・'-'（長音。de-ta = でーた 等が従来一切判定されなかった
+  // 問題への対策・2026-10-05）。
   std::string prefix;
   std::string segment;
   if (mode == transliteration::HALF_ASCII &&
       SplitTrailingSegment(romaji, &prefix, &segment) &&
-      segment.size() >= kMinSegmentLength && IsAsciiLetters(segment)) {
+      segment.size() >= kMinSegmentLength && IsJudgeableKeys(segment)) {
     in_hook = true;
     const Verdict pre_verdict = QueryDecision(segment, mode_value);
     in_hook = false;
@@ -453,11 +462,12 @@ bool MaybeSwitchToEnglish(Composer *composer) {
   }
 
   // 判定は「英字のみ」でなくても問い合わせる（実機テストで全データを見るため）。
-  // 切り替えの適用条件は従来どおり厳しく保つ。
+  // 切り替えの適用キーは英字・数字・'-' に限定（'-' は長音入りの英語 e-mail 等を
+  // かなモードから素通しへ戻す対称性のためにも使う。2026-10-05）。
   in_hook = true;
   const Verdict verdict = QueryDecision(romaji, mode_value);
   bool applied = false;
-if (romaji.size() >= kMinLength && IsAsciiLetters(romaji) &&
+if (romaji.size() >= kMinLength && IsJudgeableKeys(romaji) &&
       verdict.decision == "en" && verdict.confidence >= kMinConfidence) {
     const size_t length = composer->GetLength();
     // Fork fix: モードを先に切り替えてから組み直す。順序が逆だと、既に入力済みの
