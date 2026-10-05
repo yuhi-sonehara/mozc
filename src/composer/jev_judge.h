@@ -60,6 +60,15 @@ class Judge {
 // Composer::ProcessCompositionInput から呼ばれる。
 bool MaybeSwitchToEnglish(Composer *composer);
 
+// 確定テキストの記録（ロガー改修）: 判定サーバーへ commit イベントを送る。
+// 確定したテキストをサーバー側の JSONL（judge_commits）へ記録し、
+// 判定モデルの正解ラベルを作るための素材になる。
+//   raw  : 確定時の生ローマ字（ベストエフォート。空の場合あり）
+//   mode : 確定時の入力モード（transliteration::TransliterationType の値）
+//   text : クライアントへ渡された確定テキストそのもの
+// サーバー不在・送信失敗時は何もしない（IME の動作に影響しない）。
+void NotifyCommit(const std::string &raw, int mode, const std::string &text);
+
 // 入力モードの遷移がどこから来たかを表す。
 // 自動切替（判定フック）とユーザー操作（Ctrl+Space 等のトグル）を区別し、
 // 確定時の自動復帰を「判定器由来だけ」に限定するために使う。

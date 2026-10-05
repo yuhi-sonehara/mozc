@@ -29,6 +29,7 @@
 
 #include "composer/jev_judge.h"
 
+#include <cstdio>
 #include <cstdlib>
 #include <string>
 
@@ -267,6 +268,59 @@ bool SplitTrailingSegment(const std::string &romaji, std::string *prefix,
   return !segment->empty();
 }
 
+// 確定テキスト記録（ロガー改修）: JSON 文字列のエスケープ。
+// 確定テキストは改行・タブ等の制御文字を含み得るため、keystroke 用の
+// JsonEscape より厳密に、JSON として無効な文字（0x00〜0x1F）をすべて
+// エスケープする（JSONL を 1 行 1 レコードに保つ）。
+std::string EscapeJsonString(const std::string &src) {
+  std::string out;
+  out.reserve(src.size() + 8);
+  for (const unsigned char c : src) {
+    switch (c) {
+      case '"':
+        out += "\\\"";
+        break;
+      case '\\':
+        out += "\\\\";
+        break;
+      case '\n':
+        out += "\\n";
+        break;
+      case '\r':
+        out += "\\r";
+        break;
+      case '\t':
+        out += "\\t";
+        break;
+      default:
+        if (c < 0x20) {
+          char buf[8];
+          std::snprintf(buf, sizeof(buf), "\\u%04x", c);
+          out += buf;
+        } else {
+          out += static_cast<char>(c);
+        }
+        break;
+    }
+  }
+  return out;
+}
+
+// 確定テキスト記録（ロガー改修）: commit イベントの JSON リクエストを
+// 組み立てる。プラットフォーム非依存の純粋関数（テスト harness から
+// そのまま呼べる形にしてある）。
+std::string BuildCommitRequest(const std::string &raw, int mode,
+                               const std::string &text) {
+  std::string out = "{\"cmd\":\"commit\",\"keys\":\"";
+  out += EscapeJsonString(raw);
+  out += "\",\"text\":\"";
+  out += EscapeJsonString(text);
+  out += "\",\"mode\":";
+  out += std::to_string(mode);
+  out += ",\"source\":\"mozc\",\"version\":2}";
+  return out;
+}
+
 #ifdef _WIN32
 // 診断用: フックが呼ばれた事実をファイルにも残す。
 // パイプ不通（サーバーに届かない）とフック未発火を区別するために使う。
@@ -325,6 +379,24 @@ void ReportFirstCall(const std::string &romaji, int mode) {
   Transact(std::string("{\"cmd\":\"ping\",\"source\":\"mozc\",\"note\":") +
            "\"first-hook-call\"}");
 }
+
+// 確定テキスト記録（ロガー改修）: 確定テキストをサーバーへ送る。
+// 応答は使わない。失敗（サーバー不在・タイムアウト等）は無視して
+// IME を止めない。ログの取りこぼしを減らすため数回だけ再試行する
+// （サーバー側パイプのインスタンス切り替えの隙間に当たった場合の救済。
+// コミットは人間の操作間隔でしか発生しないため、この再試行は軽い）。
+void SendCommitRequest(const std::string &raw, int mode,
+                       const std::string &text) {
+  const std::string request = BuildCommitRequest(raw, mode, text);
+  for (int attempt = 0; attempt < 3; ++attempt) {
+    if (attempt > 0) {
+      ::Sleep(1);
+    }
+    if (!Transact(request).empty()) {
+      return;  // サーバーが受け取った（応答の中身は使わない）
+    }
+  }
+}
 #else  // !_WIN32
 struct Verdict {
   std::string decision;
@@ -342,6 +414,13 @@ void WriteDebugLog(const std::string &line) { (void)line; }
 void ReportFirstCall(const std::string &romaji, int mode) {
   (void)romaji;
   (void)mode;
+}
+
+void SendCommitRequest(const std::string &raw, int mode,
+                       const std::string &text) {
+  // 非 Windows ではパイプが無いため送らない。共通部（リクエスト組み立て）
+  // をコンパイル対象に含め、未使用関数警告も避ける。
+  (void)BuildCommitRequest(raw, mode, text);
 }
 #endif  // _WIN32
 
@@ -364,6 +443,10 @@ bool Judge::IsEnglish(const std::string &romaji) {
 }
 
 void DebugLog(const std::string &line) { WriteDebugLog(line); }
+
+void NotifyCommit(const std::string &raw, int mode, const std::string &text) {
+  SendCommitRequest(raw, mode, text);
+}
 
 void SetModeOrigin(ModeOrigin origin) {
   // IME サーバーは単一スレッドなので状態は 1 つで足りる（thread_local 不要）。

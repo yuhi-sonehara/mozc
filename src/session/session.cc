@@ -1788,6 +1788,14 @@ bool Session::CommitInternal(commands::Command* command,
 
   PushUndoContext();
 
+  // Fork: ロガー改修 — 確定テキストの記録素材を、組成がリセットされる前に
+  // 控える（パスワード欄は記録しない）。
+  const std::string jev_commit_raw = context_->composer().GetRawString();
+  const int jev_commit_mode =
+      static_cast<int>(context_->composer().GetInputMode());
+  const bool jev_commit_loggable =
+      context_->composer().GetInputFieldType() != commands::Context::PASSWORD;
+
   if (context_->state() == ImeContext::COMPOSITION) {
     context_->mutable_converter()->CommitPreedit(context_->composer(),
                                                  command->input().context());
@@ -1818,6 +1826,13 @@ bool Session::CommitInternal(commands::Command* command,
   Output(command);
   // Copy the previous output for Undo.
   *context_->mutable_output() = command->output();
+
+  // Fork: ロガー改修 — 確定テキストを判定サーバーへ通知（正解ラベルの素材）。
+  // クライアントへ渡った確定値そのものを記録する。
+  if (jev_commit_loggable && command->output().has_result()) {
+    composer::jev::NotifyCommit(jev_commit_raw, jev_commit_mode,
+                                command->output().result().value());
+  }
   return true;
 }
 
@@ -1953,6 +1968,16 @@ void Session::CommitStringDirectly(absl::string_view key,
     return;
   }
 
+  // Fork: ロガー改修 — 確定テキストの記録素材。この関数は直後に composer を
+  // クリアするため、先にコピーを控える（preedit は composer 内を指す view）。
+  // パスワード欄は記録しない。
+  const std::string jev_commit_raw = context_->composer().GetRawString();
+  const int jev_commit_mode =
+      static_cast<int>(context_->composer().GetInputMode());
+  const bool jev_commit_loggable =
+      context_->composer().GetInputFieldType() != commands::Context::PASSWORD;
+  const std::string jev_commit_text(preedit.data(), preedit.size());
+
   command->mutable_output()->set_consumed(true);
   context_->mutable_converter()->Reset();
 
@@ -1970,6 +1995,12 @@ void Session::CommitStringDirectly(absl::string_view key,
   }
 
   Output(command);
+
+  // Fork: ロガー改修 — 確定テキストを判定サーバーへ通知。
+  if (jev_commit_loggable) {
+    composer::jev::NotifyCommit(jev_commit_raw, jev_commit_mode,
+                                jev_commit_text);
+  }
 }
 
 namespace {
