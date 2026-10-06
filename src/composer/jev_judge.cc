@@ -259,6 +259,44 @@ bool SplitTrailingSegment(const std::string &romaji, std::string *prefix,
                           std::string *segment) {
   const size_t space = romaji.find_last_of(' ');
   if (space == std::string::npos) {
+    // 空白が無いときは「略語＋ローマ字かな」の境界でも分割する（2026-10-06 追加・
+    // 選択肢2）。例: "NASAni" -> prefix="NASA" / segment="ni"、
+    // "GFL2wo" -> "GFL2" / "wo"。実測 16,283 件（NASAni 8,530 / NASAn 7,111 /
+    // NASAnii 604 / AHKko / UImojissou / GFL2wo ほか）がこの形で、従来は打鍵列
+    // まるごとが判定されていたため日本語部分が変換されなかった。
+    // 誤爆防止のため、境界は「直前までが全て [A-Z0-9] かつ 2 文字以上」の位置に
+    // 限定する（"Soundcore" の "S|oundcore" のような 1 文字プレフィックスは
+    // 分割せず、従来どおり打鍵列まるごとを判定する）。
+    if (romaji.size() >= 4) {
+      for (size_t i = romaji.size() - 1; i >= 2; --i) {
+        const char prev = romaji[i - 1];
+        const char cur = romaji[i];
+        const bool prev_upper_or_digit =
+            (prev >= 'A' && prev <= 'Z') || (prev >= '0' && prev <= '9');
+        const bool cur_lower = cur >= 'a' && cur <= 'z';
+        if (!prev_upper_or_digit || !cur_lower) {
+          continue;
+        }
+        const std::string head = romaji.substr(0, i);
+        if (head.size() < 2) {
+          continue;
+        }
+        bool head_is_acronym = true;
+        for (std::string::size_type k = 0; k < head.size(); ++k) {
+          const char c = head[k];
+          if (!((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'))) {
+            head_is_acronym = false;
+            break;
+          }
+        }
+        if (!head_is_acronym) {
+          continue;
+        }
+        *prefix = head;
+        *segment = romaji.substr(i);
+        return !segment->empty();
+      }
+    }
     prefix->clear();
     *segment = romaji;
   } else {
@@ -266,6 +304,68 @@ bool SplitTrailingSegment(const std::string &romaji, std::string *prefix,
     *segment = romaji.substr(space + 1);
   }
   return !segment->empty();
+}
+
+// 打鍵列中の最後の「略語（[A-Z0-9]{2,}）| ローマ字かな」境界を求める
+// （2026-10-06 追加・選択肢2）。例: "korehaAPIdesu" -> prefix=6 / token=3 /
+// tail="desu"、"UImojissou" -> prefix=0 / token=2 / tail="mojissou"。
+// 境界が見つからないときは false を返す（呼び出し側は従来の処理に進む）。
+bool FindAcronymSplit(const std::string &romaji, size_t *prefix_len,
+                      size_t *token_len, std::string *tail) {
+  const size_t n = romaji.size();
+  if (n < 4) {
+    return false;
+  }
+  // 末尾が略語（[A-Z0-9]{2,}）で終わっている形（"korehaAPI"、"nihonGO"）は、
+  // 後続の小文字が来る前でもトークンを保持したいので先に調べる。HDD のような
+  // 略語をかなモードで打ったとき、次の打鍵を待たずに半角のまま残す。
+  {
+    size_t start = n;
+    while (start > 0) {
+      const char c = romaji[start - 1];
+      const bool is_upper_or_digit =
+          (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
+      if (!is_upper_or_digit) {
+        break;
+      }
+      --start;
+    }
+    if (start < n && start > 0 && n - start >= 2) {
+      *prefix_len = start;
+      *token_len = n - start;
+      tail->clear();
+      return true;
+    }
+  }
+  for (size_t i = n - 1; i >= 2; --i) {
+    const char prev = romaji[i - 1];  // 略語トークンの最後の文字
+    const char cur = romaji[i];       // かな部分の先頭
+    const bool prev_upper_or_digit =
+        (prev >= 'A' && prev <= 'Z') || (prev >= '0' && prev <= '9');
+    const bool cur_lower = cur >= 'a' && cur <= 'z';
+    if (!prev_upper_or_digit || !cur_lower) {
+      continue;
+    }
+    // トークンの先頭まで [A-Z0-9] をさかのぼる。
+    size_t start = i;
+    while (start > 0) {
+      const char c = romaji[start - 1];
+      const bool is_upper_or_digit =
+          (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
+      if (!is_upper_or_digit) {
+        break;
+      }
+      --start;
+    }
+    if (i - start < 2) {
+      continue;  // 略語は 2 文字以上（1 文字の大文字は対象外）
+    }
+    *prefix_len = start;
+    *token_len = i - start;
+    *tail = romaji.substr(i);
+    return true;
+  }
+  return false;
 }
 
 // 確定テキスト記録（ロガー改修）: JSON 文字列のエスケープ。
@@ -547,6 +647,48 @@ bool MaybeSwitchToEnglish(Composer *composer) {
   // 判定は「英字のみ」でなくても問い合わせる（実機テストで全データを見るため）。
   // 切り替えの適用キーは英字・数字・'-' に限定（'-' は長音入りの英語 e-mail 等を
   // かなモードから素通しへ戻す対称性のためにも使う。2026-10-05）。
+  // 略語トークンの生挿入（2026-10-06 追加・選択肢2）。
+  // ひらがなモードで「かな部分＋略語＋かな」の形（"korehaAPIdesu"、
+  // "UImojissou" など）のとき、略語トークンだけを判定して en なら、かな部分と
+  // 後続のかなはひらがなのまま・トークンは生の半角で組み直す。従来は打鍵列
+  // まるごとが判定されて平坦化され、日本語部分が消えていた
+  // （実測: "korehaAPIdesu" -> これはあぴです）。
+  // モードはひらがなのまま維持するため、後続の "desu" 等は従来どおり変換される。
+  {
+    size_t acronym_prefix_len = 0;
+    size_t acronym_token_len = 0;
+    std::string acronym_tail;
+    if (FindAcronymSplit(romaji, &acronym_prefix_len, &acronym_token_len,
+                         &acronym_tail)) {
+      const std::string token =
+          romaji.substr(acronym_prefix_len, acronym_token_len);
+      const std::string kana_part = romaji.substr(0, acronym_prefix_len);
+      in_hook = true;
+      const Verdict token_verdict = QueryDecision(token, mode_value);
+      in_hook = false;
+      if (token_verdict.decision == "en" &&
+          token_verdict.confidence >= kMinConfidence) {
+        const size_t total_length = composer->GetLength();
+        composer->SetInputMode(transliteration::HIRAGANA);
+        composer->SetNewInput();
+        composer->DeleteRange(0, total_length);
+        for (std::string::size_type i = 0; i < kana_part.size(); ++i) {
+          composer->InsertCharacter(kana_part.substr(i, 1));
+        }
+        composer->InsertCharacterPreedit(token);
+        for (std::string::size_type i = 0; i < acronym_tail.size(); ++i) {
+          composer->InsertCharacter(acronym_tail.substr(i, 1));
+        }
+        SetModeOrigin(ModeOrigin::kAutoSwitchedByJudge);
+        WriteDebugLog("switch acronym to half-ascii: raw=\"" + romaji +
+                      "\" token=\"" + token + "\" tail=\"" + acronym_tail +
+                      "\" conf=" + std::to_string(token_verdict.confidence) +
+                      " preedit=\"" + composer->GetStringForPreedit() +
+                      "\"\n");
+        return true;
+      }
+    }
+  }
   in_hook = true;
   const Verdict verdict = QueryDecision(romaji, mode_value);
   bool applied = false;
