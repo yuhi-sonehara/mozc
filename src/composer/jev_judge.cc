@@ -32,6 +32,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "composer/composer.h"
 #include "transliteration/transliteration.h"
@@ -255,18 +257,17 @@ bool IsJudgeableKeys(const std::string &text) {
 //   prefix   : "web "（末尾セグメントより前の部分。判定はしない）
 //   segment  : "wo"    （判定対象）
 // 末尾の空白のみが入力されているときは segment が空になるので false。
+//
+// 空白が無い打鍵（NASAni / APIwo / GFL2wo など）は、略語境界でも分割する
+// （2026-10-06 追加）。実測 16,283 件（NASAni 8,530 / NASAn 7,111 /
+// NASAnii 604 / AHKko / UImojissou / GFL2wo ほか）がこの形で、従来は打鍵列
+// まるごとが判定に回っていたため日本語部分が変換されなかった。
+// 境界は「直前までが全て [A-Z0-9] かつ 2 文字以上」の位置に限定し、
+// 1 文字プレフィックス（"S|oundcore"）は分割しない（誤爆防止）。
 bool SplitTrailingSegment(const std::string &romaji, std::string *prefix,
                           std::string *segment) {
   const size_t space = romaji.find_last_of(' ');
   if (space == std::string::npos) {
-    // 空白が無いときは「略語＋ローマ字かな」の境界でも分割する（2026-10-06 追加・
-    // 選択肢2）。例: "NASAni" -> prefix="NASA" / segment="ni"、
-    // "GFL2wo" -> "GFL2" / "wo"。実測 16,283 件（NASAni 8,530 / NASAn 7,111 /
-    // NASAnii 604 / AHKko / UImojissou / GFL2wo ほか）がこの形で、従来は打鍵列
-    // まるごとが判定されていたため日本語部分が変換されなかった。
-    // 誤爆防止のため、境界は「直前までが全て [A-Z0-9] かつ 2 文字以上」の位置に
-    // 限定する（"Soundcore" の "S|oundcore" のような 1 文字プレフィックスは
-    // 分割せず、従来どおり打鍵列まるごとを判定する）。
     if (romaji.size() >= 4) {
       for (size_t i = romaji.size() - 1; i >= 2; --i) {
         const char prev = romaji[i - 1];
@@ -304,68 +305,6 @@ bool SplitTrailingSegment(const std::string &romaji, std::string *prefix,
     *segment = romaji.substr(space + 1);
   }
   return !segment->empty();
-}
-
-// 打鍵列中の最後の「略語（[A-Z0-9]{2,}）| ローマ字かな」境界を求める
-// （2026-10-06 追加・選択肢2）。例: "korehaAPIdesu" -> prefix=6 / token=3 /
-// tail="desu"、"UImojissou" -> prefix=0 / token=2 / tail="mojissou"。
-// 境界が見つからないときは false を返す（呼び出し側は従来の処理に進む）。
-bool FindAcronymSplit(const std::string &romaji, size_t *prefix_len,
-                      size_t *token_len, std::string *tail) {
-  const size_t n = romaji.size();
-  if (n < 4) {
-    return false;
-  }
-  // 末尾が略語（[A-Z0-9]{2,}）で終わっている形（"korehaAPI"、"nihonGO"）は、
-  // 後続の小文字が来る前でもトークンを保持したいので先に調べる。HDD のような
-  // 略語をかなモードで打ったとき、次の打鍵を待たずに半角のまま残す。
-  {
-    size_t start = n;
-    while (start > 0) {
-      const char c = romaji[start - 1];
-      const bool is_upper_or_digit =
-          (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
-      if (!is_upper_or_digit) {
-        break;
-      }
-      --start;
-    }
-    if (start < n && start > 0 && n - start >= 2) {
-      *prefix_len = start;
-      *token_len = n - start;
-      tail->clear();
-      return true;
-    }
-  }
-  for (size_t i = n - 1; i >= 2; --i) {
-    const char prev = romaji[i - 1];  // 略語トークンの最後の文字
-    const char cur = romaji[i];       // かな部分の先頭
-    const bool prev_upper_or_digit =
-        (prev >= 'A' && prev <= 'Z') || (prev >= '0' && prev <= '9');
-    const bool cur_lower = cur >= 'a' && cur <= 'z';
-    if (!prev_upper_or_digit || !cur_lower) {
-      continue;
-    }
-    // トークンの先頭まで [A-Z0-9] をさかのぼる。
-    size_t start = i;
-    while (start > 0) {
-      const char c = romaji[start - 1];
-      const bool is_upper_or_digit =
-          (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
-      if (!is_upper_or_digit) {
-        break;
-      }
-      --start;
-    }
-    if (i - start < 2) {
-      continue;  // 略語は 2 文字以上（1 文字の大文字は対象外）
-    }
-    *prefix_len = start;
-    *token_len = i - start;
-    *tail = romaji.substr(i);
-    return true;
-  }
-  return false;
 }
 
 // 確定テキスト記録（ロガー改修）: JSON 文字列のエスケープ。
@@ -419,6 +358,69 @@ std::string BuildCommitRequest(const std::string &raw, int mode,
   out += std::to_string(mode);
   out += ",\"source\":\"mozc\",\"version\":2}";
   return out;
+}
+
+// 打鍵列中の最後の「略語（[A-Z0-9]{2,}）｜ローマ字かな」境界を求める
+// （2026-10-06 追加）。ひらがなモードで「かな＋略語（＋かな）」の形
+// （"korehaAPIdesu" / "UImojissou" / "korehaAPI"）を分割するために使う。
+//   prefix_len : 略語より前のかな部分の長さ（romaji の先頭からの長さ）
+//   token_len  : 略語トークンの長さ
+//   tail       : 略語より後のかな部分（無ければ空）
+// 境界が見つからなければ false（呼び出し側は従来の処理へ進む）。
+bool FindAcronymSplit(const std::string &romaji, size_t *prefix_len,
+                      size_t *token_len, std::string *tail) {
+  const size_t n = romaji.size();
+  if (n < 4) {
+    return false;
+  }
+  // 末尾が略語で終わる形（"korehaAPI"）は、後続の小文字を待たずに
+  // トークンを保持したいので先に調べる。
+  {
+    size_t start = n;
+    while (start > 0) {
+      const char c = romaji[start - 1];
+      const bool is_upper_or_digit =
+          (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
+      if (!is_upper_or_digit) {
+        break;
+      }
+      --start;
+    }
+    if (start < n && start > 0 && n - start >= 2) {
+      *prefix_len = start;
+      *token_len = n - start;
+      tail->clear();
+      return true;
+    }
+  }
+  for (size_t i = n - 1; i >= 2; --i) {
+    const char prev = romaji[i - 1];  // 略語トークンの最後の文字
+    const char cur = romaji[i];       // かな部分の先頭
+    const bool prev_upper_or_digit =
+        (prev >= 'A' && prev <= 'Z') || (prev >= '0' && prev <= '9');
+    const bool cur_lower = cur >= 'a' && cur <= 'z';
+    if (!prev_upper_or_digit || !cur_lower) {
+      continue;
+    }
+    size_t start = i;
+    while (start > 0) {
+      const char c = romaji[start - 1];
+      const bool is_upper_or_digit =
+          (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
+      if (!is_upper_or_digit) {
+        break;
+      }
+      --start;
+    }
+    if (i - start < 2) {
+      continue;  // 略語は 2 文字以上（1 文字の大文字は対象外）
+    }
+    *prefix_len = start;
+    *token_len = i - start;
+    *tail = romaji.substr(i);
+    return true;
+  }
+  return false;
 }
 
 #ifdef _WIN32
@@ -558,7 +560,11 @@ ModeOrigin GetModeOrigin() { return g_mode_origin; }
 void ClearModeOrigin() { g_mode_origin = ModeOrigin::kDefault; }
 
 bool MaybeSwitchToEnglish(Composer *composer) {
-  // 自分の書き換え（InsertCharacterPreedit）で再入しないための番人。
+  // 自分の書き換え（InsertCharacter / InsertCharacterPreedit）で再入しないための番人。
+  // ⚠ 組み直しの間は必ず true を保持する。前回 v16 は判定問い合わせの周りだけを
+  //   true/false し、組み直し（InsertCharacter 等）を素で呼んだため、
+  //   InsertCharacter → ProcessCompositionInput → 本フックの再入で同じ分岐が
+  //   再発火して暴走ループ（実測 141,965 件）→ IME 応答停止になった。
   static thread_local bool in_hook = false;
   if (in_hook || composer == nullptr) {
     return false;
@@ -574,12 +580,49 @@ bool MaybeSwitchToEnglish(Composer *composer) {
   // 診断: フックが呼ばれた事実を1回だけサーバーとファイルの両方に残す。
   ReportFirstCall(romaji, mode_value);
 
-  // ハイブリッド: 半角英数モードで日本語判定なら、ひらがなモードへ戻す。
+  // 組成の全組み直し。segments は (半角英数のまま生挿入するか, 文字列) の並びで
+  // 順に挿入する。
+  //   first = true  : HALF_ASCII モードで生挿入（略語トークンを半角のまま見せる）
+  //   first = false : HIRAGANA モードで挿入（ローマ字をかなへ変換）
+  // ⚠ 半角英数モードでは「末尾セグメントだけの部分組み直し」が画面に反映されない
+  //   （2026-10-06 実測: APIwo で segment="wo" が毎打鍵再発火し preedit は APIwo の
+  //   まま = raw が伸びない典型症状）。実績のある en 方向と同じ「全消し → 再投入」
+  //   に統一する（部分組み直しは行わない）。
+  // ⚠ 呼び出し側は in_hook = true のまま本ラムダを呼ぶこと（再入防止）。
+  auto rebuild = [&](const std::vector<std::pair<bool, std::string>> &segments) {
+    composer->SetInputMode(transliteration::HIRAGANA);
+    composer->SetNewInput();
+    composer->DeleteRange(0, composer->GetLength());
+    for (const std::pair<bool, std::string> &seg : segments) {
+      if (seg.second.empty()) {
+        continue;
+      }
+      composer->SetInputMode(seg.first ? transliteration::HALF_ASCII
+                                       : transliteration::HIRAGANA);
+      composer->SetNewInput();
+      if (seg.first) {
+        // 半角のまま見せたい部分は、実績のある en 方向と同じ生挿入を使う
+        // （かなモードで InsertCharacterPreedit すると全角化されるため）。
+        composer->InsertCharacterPreedit(seg.second);
+      } else {
+        for (std::string::size_type i = 0; i < seg.second.size(); ++i) {
+          composer->InsertCharacter(seg.second.substr(i, 1));
+        }
+      }
+    }
+    // モードは「ひらがな」で終える（英日混在のあとも続けて日本語を打てるように）。
+    // SetInputMode は以後に作るチャンクの字種を決めるだけで、組んだチャンクは
+    // そのまま残る（Composition::SetInputMode は input_t12r_ のみ更新）。
+    composer->SetInputMode(transliteration::HIRAGANA);
+  };
+
+  // (1) ハイブリッド ja 方向: 半角英数モードで日本語判定なら、ひらがなモードへ戻す。
   // 下の「英数モードなら即 return」ガードより前に置く必要があるため、ここで自前で判定を取る。
   //
-  // 判定対象は「最後の空白以降のセグメント」だけ。半角英数で「web 」まで打った
-  // 後の「web wo」は英字のみのゲートでは判定に一届かず、そのままだと
-  // 文頭の英単語の後ろで日本語が打てなくなる（実測: スペース入り raw の判定依頼は 0 件）。
+  // 判定対象は「末尾セグメント」だけ。半角英数で「web 」まで打った後の「web wo」は
+  // 英字のみのゲートでは判定に一届かず、そのままだと文頭の英単語の後ろで日本語が
+  // 打てなくなる（実測: スペース入り raw の判定依頼は 0 件）。空白が無い打鍵は
+  // 略語境界でも分割する（NASAni → NASA + に）。
   // セグメントは 2 文字以上なら問い合わせる（助詞「に」など 2 打鍵語の救済）。
   // 対象キーは英字・数字・'-'（長音。de-ta = でーた 等が従来一切判定されなかった
   // 問題への対策・2026-10-05）。
@@ -588,42 +631,13 @@ bool MaybeSwitchToEnglish(Composer *composer) {
   if (mode == transliteration::HALF_ASCII &&
       SplitTrailingSegment(romaji, &prefix, &segment) &&
       segment.size() >= kMinSegmentLength && IsJudgeableKeys(segment)) {
-    in_hook = true;
+    in_hook = true;  // 判定と組み直しの全体をガードする（組み直し中の再入防止）
     const Verdict pre_verdict = QueryDecision(segment, mode_value);
-    in_hook = false;
     if (pre_verdict.decision == "ja" &&
         pre_verdict.confidence >= kMinConfidenceJa) {
-      // 末尾セグメントだけをかなへ組み直す。プレフィックス（"web "）は
-      // そのまま半角英数のチャンクとして残す。
-      //
-      // CharChunk は生成時の transliterator を保持するため、モード切替の
-      // あとから書き直したプレフィックスはひらがな変換
-      // （LOCAL → HIRAGANA → 全角化）を受けてしまう。プレフィックスを
-      // 半角のまま残すには、モード切替のあとからプレフィックスを
-      // 書き直さず、組んだまま触らないことが必須。したがって順序は
-      //   末尾セグメントだけ消す → モード変更 → SetNewInput → 末尾だけ再投入
-      // とし、プレフィックスには触れない。
-      //
-      // プレフィックス無しのときは従来どおり全消ししてから組み直す
-      // （順序: モード変更 → SetNewInput → DeleteRange → 再投入）。
-      const size_t total_length = composer->GetLength();
-      if (prefix.empty()) {
-        composer->SetInputMode(transliteration::HIRAGANA);
-        composer->SetNewInput();
-        composer->DeleteRange(0, total_length);
-      } else {
-        // 半角英数モードでは生ローマ字 1 文字 = preedit 1 文字なので、
-        // プレフィックスの長さはそのまま.DeleteRange の開始位置になる。
-        const size_t prefix_length = prefix.size();
-        if (prefix_length < total_length) {
-          composer->DeleteRange(prefix_length, total_length - prefix_length);
-        }
-        composer->SetInputMode(transliteration::HIRAGANA);
-        composer->SetNewInput();
-      }
-      for (std::string::size_type i = 0; i < segment.size(); ++i) {
-        composer->InsertCharacter(segment.substr(i, 1));
-      }
+      // プレフィックス（"web " / "NASA"）は半角のチャンクのまま、末尾セグメントだけ
+      // かなへ。全組み直しでも混在できるよう、半角側は HALF_ASCII モードで生挿入する。
+      rebuild({{true, prefix}, {false, segment}});
       SetModeOrigin(ModeOrigin::kAutoSwitchedByJudge);
       WriteDebugLog("switch to hiragana: raw=\"" + romaji + "\" segment=\"" +
                     segment + "\" conf=" +
@@ -631,7 +645,38 @@ bool MaybeSwitchToEnglish(Composer *composer) {
                     std::to_string(static_cast<int>(composer->GetInputMode())) +
                     " len=" + std::to_string(static_cast<int>(composer->GetLength())) +
                     " preedit=\"" + composer->GetStringForPreedit() + "\"\n");
+      in_hook = false;
       return true;
+    }
+    in_hook = false;
+  }
+
+  // (2) ひらがなモードで「かな＋略語（＋かな）」のとき、略語トークンだけを半角で残す。
+  // 従来は打鍵列まるごとが判定されて平坦化され、日本語部分が消えていた
+  // （実測: korehaAPIdesu → これはあぴです / UImojissou → ういもじっそう）。
+  // トークンは HALF_ASCII モードで挿入する（かなモードで入れると全角化される）。
+  if (mode == transliteration::HIRAGANA) {
+    size_t acronym_start = 0;
+    size_t acronym_len = 0;
+    std::string acronym_tail;
+    if (FindAcronymSplit(romaji, &acronym_start, &acronym_len, &acronym_tail)) {
+      const std::string token = romaji.substr(acronym_start, acronym_len);
+      in_hook = true;
+      const Verdict token_verdict = QueryDecision(token, mode_value);
+      if (token_verdict.decision == "en" &&
+          token_verdict.confidence >= kMinConfidence) {
+        rebuild({{false, romaji.substr(0, acronym_start)},
+                 {true, token},
+                 {false, acronym_tail}});
+        SetModeOrigin(ModeOrigin::kAutoSwitchedByJudge);
+        WriteDebugLog("switch acronym to half-ascii: raw=\"" + romaji +
+                      "\" token=\"" + token + "\" tail=\"" + acronym_tail +
+                      "\" conf=" + std::to_string(token_verdict.confidence) +
+                      " preedit=\"" + composer->GetStringForPreedit() + "\"\n");
+        in_hook = false;
+        return true;
+      }
+      in_hook = false;
     }
   }
   if (mode == transliteration::HALF_ASCII ||
@@ -647,48 +692,6 @@ bool MaybeSwitchToEnglish(Composer *composer) {
   // 判定は「英字のみ」でなくても問い合わせる（実機テストで全データを見るため）。
   // 切り替えの適用キーは英字・数字・'-' に限定（'-' は長音入りの英語 e-mail 等を
   // かなモードから素通しへ戻す対称性のためにも使う。2026-10-05）。
-  // 略語トークンの生挿入（2026-10-06 追加・選択肢2）。
-  // ひらがなモードで「かな部分＋略語＋かな」の形（"korehaAPIdesu"、
-  // "UImojissou" など）のとき、略語トークンだけを判定して en なら、かな部分と
-  // 後続のかなはひらがなのまま・トークンは生の半角で組み直す。従来は打鍵列
-  // まるごとが判定されて平坦化され、日本語部分が消えていた
-  // （実測: "korehaAPIdesu" -> これはあぴです）。
-  // モードはひらがなのまま維持するため、後続の "desu" 等は従来どおり変換される。
-  {
-    size_t acronym_prefix_len = 0;
-    size_t acronym_token_len = 0;
-    std::string acronym_tail;
-    if (FindAcronymSplit(romaji, &acronym_prefix_len, &acronym_token_len,
-                         &acronym_tail)) {
-      const std::string token =
-          romaji.substr(acronym_prefix_len, acronym_token_len);
-      const std::string kana_part = romaji.substr(0, acronym_prefix_len);
-      in_hook = true;
-      const Verdict token_verdict = QueryDecision(token, mode_value);
-      in_hook = false;
-      if (token_verdict.decision == "en" &&
-          token_verdict.confidence >= kMinConfidence) {
-        const size_t total_length = composer->GetLength();
-        composer->SetInputMode(transliteration::HIRAGANA);
-        composer->SetNewInput();
-        composer->DeleteRange(0, total_length);
-        for (std::string::size_type i = 0; i < kana_part.size(); ++i) {
-          composer->InsertCharacter(kana_part.substr(i, 1));
-        }
-        composer->InsertCharacterPreedit(token);
-        for (std::string::size_type i = 0; i < acronym_tail.size(); ++i) {
-          composer->InsertCharacter(acronym_tail.substr(i, 1));
-        }
-        SetModeOrigin(ModeOrigin::kAutoSwitchedByJudge);
-        WriteDebugLog("switch acronym to half-ascii: raw=\"" + romaji +
-                      "\" token=\"" + token + "\" tail=\"" + acronym_tail +
-                      "\" conf=" + std::to_string(token_verdict.confidence) +
-                      " preedit=\"" + composer->GetStringForPreedit() +
-                      "\"\n");
-        return true;
-      }
-    }
-  }
   in_hook = true;
   const Verdict verdict = QueryDecision(romaji, mode_value);
   bool applied = false;
