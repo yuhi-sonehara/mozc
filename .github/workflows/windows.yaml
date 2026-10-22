@@ -1,9 +1,12 @@
-# ci-verify 2026-09-23: stage-2 build path check (comment only, no behavior change)
+﻿# ci-verify 2026-09-23: stage-2 build path check (comment only, no behavior change)
 name: CI for Windows
 # https://github.com/google/mozc/blob/master/docs/build_mozc_in_windows.md
 
-# Run on push.
-on: push
+# Run on push, and allow a manual dispatch (push events stopped starting runs
+# on 2026-10-22; the dispatch path is the fallback).
+on:
+  push:
+  workflow_dispatch:
 
 permissions:
   contents: read
