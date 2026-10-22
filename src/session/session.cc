@@ -737,6 +737,9 @@ bool Session::SendKeyCompositionState(commands::Command* command) {
     case keymap::CompositionState::CONVERT:
       return Convert(command);
 
+    case keymap::CompositionState::CONVERT_OR_COMMIT:
+      return ConvertOrCommit(command);
+
     case keymap::CompositionState::CONVERT_WITHOUT_HISTORY:
       return ConvertWithoutHistory(command);
 
@@ -2389,6 +2392,17 @@ bool Session::DeleteCandidateFromHistory(commands::Command* command) {
     return DoNothing(command);
   }
   return ConvertCancel(command);
+}
+
+bool Session::ConvertOrCommit(commands::Command* command) {
+  // Fork: 日英判定フックがひらがなへ切り替えた組成では、Enter を「文全体の変換」に
+  // 使う（Space は素のまま空白挿入）。ユーザーが自分で切り替えた場合や、判定を
+  // 経ていない組成は、素の Mozc と同じく確定する。
+  if (composer::jev::GetModeOrigin() ==
+      composer::jev::ModeOrigin::kAutoSwitchedByJudge) {
+    return Convert(command);
+  }
+  return Commit(command);
 }
 
 bool Session::Convert(commands::Command* command) {

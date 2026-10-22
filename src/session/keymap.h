@@ -124,6 +124,9 @@ struct CompositionState {
     COMMIT,                   // Move to Precomposition status.
     COMMIT_FIRST_SUGGESTION,  // ATOK's Shift-Enter style
     CONVERT,                  // Move to Conversion status.
+    // Fork: Enter を「判定由来の組成なら文全体の変換、それ以外は確定」に使う。
+    // 半角英数から日英判定でひらがなへ移った組成だけ Convert へ回す。
+    CONVERT_OR_COMMIT,
     CONVERT_WITHOUT_HISTORY,  // Move to Conversion status.
     PREDICT_AND_CONVERT,
     // Switching to ConversionState

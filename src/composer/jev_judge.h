@@ -55,10 +55,13 @@ class Judge {
   static int GetTimeoutMsec();
 };
 
-// 組成中の生ローマ字が英語と判定されたら、かな組成を生ローマ字に置き換えて
-// 半角英数の素通しへ切り替える。切り替えた場合のみ true を返す。
+// 半角英数モードの組成が日本語と判定されたら、末尾セグメントをかなへ組み直して
+// ひらがなモードへ切り替える。切り替えた場合のみ true を返す。
+// ひらがなモード（素の Mozc の入力）では何もしない = かな→英字の自動復帰は行わない。
+// 判定サーバーが区切り（en:web|ja:wohiraku）を返した場合は、英単語を半角のまま
+// 残した混在組成に組み直す。
 // Composer::ProcessCompositionInput から呼ばれる。
-bool MaybeSwitchToEnglish(Composer *composer);
+bool MaybeConvertToKana(Composer *composer);
 
 // 確定テキストの記録（ロガー改修）: 判定サーバーへ commit イベントを送る。
 // 確定したテキストをサーバー側の JSONL（judge_commits）へ記録し、

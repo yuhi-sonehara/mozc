@@ -144,6 +144,8 @@ class Session {
   bool MoveCursorToBeginning(mozc::commands::Command* command);
   bool MoveCursorTo(mozc::commands::Command* command);
   bool Convert(mozc::commands::Command* command);
+  // Fork: Enter 用。日英判定でひらがなへ移した組成は Convert、それ以外は Commit。
+  bool ConvertOrCommit(mozc::commands::Command* command);
   // Starts conversion not using user history.  This is used for debugging.
   bool ConvertWithoutHistory(mozc::commands::Command* command);
   bool ConvertNext(mozc::commands::Command* command);

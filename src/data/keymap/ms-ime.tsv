@@ -31,7 +31,7 @@ Composition	Delete	Delete
 Composition	Down	MoveCursorToEnd
 Composition	Eisu	ToggleAlphanumericMode
 Composition	End	MoveCursorToEnd
-Composition	Enter	Commit
+Composition	Enter	ConvertOrCommit
 Composition	ESC	Cancel
 Composition	F10	ConvertToHalfAlphanumeric
 Composition	F2	ConvertWithoutHistory
