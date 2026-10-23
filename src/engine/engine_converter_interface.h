@@ -162,6 +162,10 @@ class EngineConverterInterface {
   // Clear conversion segments, but keep the context.
   virtual void Cancel() = 0;
 
+  // Fork: 下書き変換（仮変換）用。直前の Convert() で得た各セグメントの
+  // 最有力候補を連結した文字列を返す。Convert 前は空文字。
+  virtual std::string GetDraftConversionValue() const { return std::string(); }
+
   // Clear conversion segments and the context.
   virtual void Reset() = 0;
 

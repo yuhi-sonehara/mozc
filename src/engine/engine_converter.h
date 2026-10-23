@@ -117,6 +117,9 @@ class EngineConverter : public EngineConverterInterface {
   // Clears conversion segments, but keep the context.
   void Cancel() override;
 
+  // Fork: 下書き変換（仮変換）用。直前の Convert() の最有力候補を連結して返す。
+  std::string GetDraftConversionValue() const override;
+
   // Clears conversion segments and the context.
   void Reset() override;
 

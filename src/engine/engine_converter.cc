@@ -699,6 +699,21 @@ void EngineConverter::Cancel() {
   ResetState();
 }
 
+// Fork: 下書き変換（仮変換）用。直前の Convert() で組んだセグメントの
+// 最有力候補を連結する。候補が無いセグメントは読みをそのまま使う。
+std::string EngineConverter::GetDraftConversionValue() const {
+  std::string out;
+  for (size_t i = 0; i < segments_.conversion_segments_size(); ++i) {
+    const converter::Segment& seg = segments_.conversion_segment(i);
+    if (seg.candidates_size() > 0) {
+      out += seg.candidate(0).value;
+    } else {
+      out += seg.key();
+    }
+  }
+  return out;
+}
+
 void EngineConverter::Reset() {
   DCHECK(CheckState(COMPOSITION | SUGGESTION | PREDICTION | CONVERSION));
 

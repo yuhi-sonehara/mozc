@@ -1799,7 +1799,14 @@ bool Session::CommitInternal(commands::Command* command,
   const bool jev_commit_loggable =
       context_->composer().GetInputFieldType() != commands::Context::PASSWORD;
 
-  if (context_->state() == ImeContext::COMPOSITION) {
+  const bool draft_conversion = !draft_conversion_value_.empty();
+  draft_conversion_value_.clear();
+  if (draft_conversion) {
+    // Fork: 下書き変換を表示していた場合は、その変換結果をそのまま確定する
+    // （表示と確定の食い違いを防ぐ）。
+    context_->mutable_converter()->Commit(context_->composer(),
+                                          command->input().context());
+  } else if (context_->state() == ImeContext::COMPOSITION) {
     context_->mutable_converter()->CommitPreedit(context_->composer(),
                                                  command->input().context());
   } else {  // ImeContext::CONVERSION
@@ -2407,6 +2414,7 @@ bool Session::ConvertOrCommit(commands::Command* command) {
 
 bool Session::Convert(commands::Command* command) {
   command->mutable_output()->set_consumed(true);
+  draft_conversion_value_.clear();
   const std::string composition = context_->composer().GetQueryForConversion();
 
   // TODO(komatsu): Make a function like ConvertOrSpace.
@@ -2783,10 +2791,46 @@ void Session::OutputFromState(commands::Command* command) {
   Output(command);
 }
 
+// Fork: 下書き変換（仮変換）。日英判定でひらがなへ移した組成について、
+// 入力のたびに変換器を回し、最有力の変換結果を保持する。表示は Output() で
+// 差し替え、確定は CommitInternal() でこの結果を使う。
+void Session::UpdateDraftConversion() {
+  draft_conversion_value_.clear();
+  if (context_->state() != ImeContext::COMPOSITION) {
+    return;
+  }
+  if (context_->composer().Empty()) {
+    return;
+  }
+  if (composer::jev::GetModeOrigin() !=
+      composer::jev::ModeOrigin::kAutoSwitchedByJudge) {
+    return;
+  }
+  if (!context_->mutable_converter()->Convert(context_->composer(),
+                                              context_->client_context())) {
+    return;
+  }
+  draft_conversion_value_ = context_->converter().GetDraftConversionValue();
+  if (draft_conversion_value_.empty() ||
+      draft_conversion_value_ == context_->composer().GetStringForPreedit()) {
+    draft_conversion_value_.clear();
+  }
+}
+
 void Session::Output(commands::Command* command) {
+  UpdateDraftConversion();
   OutputMode(command);
   context_->mutable_converter()->PopOutput(context_->composer(),
                                            command->mutable_output());
+  // Fork: 下書き変換の表示。組成の実体はかなのまま、見た目だけ変換結果にする。
+  if (!draft_conversion_value_.empty()) {
+    commands::Preedit* preedit = command->mutable_output()->mutable_preedit();
+    preedit->Clear();
+    commands::Preedit::Segment* segment = preedit->add_segment();
+    segment->set_value(draft_conversion_value_);
+    segment->set_annotation(commands::Preedit::Segment::UNDERLINE);
+    preedit->set_cursor(static_cast<int32_t>(draft_conversion_value_.size()));
+  }
 }
 
 void Session::OutputMode(commands::Command* command) const {
