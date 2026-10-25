@@ -1815,6 +1815,8 @@ bool Session::CommitInternal(commands::Command* command,
         context_->composer().GetInputMode() == transliteration::HIRAGANA) {
       SwitchInputMode(transliteration::HALF_ASCII, context_->mutable_composer());
       composer::jev::ClearModeOrigin();
+      // CommitStringDirectly が先に出力済みなので、切替後のモードを送り直す。
+      Output(command);
     }
     return true;
   }
@@ -2826,8 +2828,12 @@ void Session::UpdateDraftConversion(const commands::Output& output) {
   if (kana.empty()) {
     return;
   }
-  for (const commands::CandidateWord& word : output.all_candidate_words()) {
-    if (word.key() == kana && !word.value().empty() && word.value() != kana) {
+  // key は「読みが組成と異なるとき」だけ入る（candidate_window.proto の仕様）。
+  // 組成全体に対応する候補は key 未設定なので、それも対象にする。
+  for (const commands::CandidateWord& word :
+       output.all_candidate_words().candidates()) {
+    if (!word.value().empty() && word.value() != kana &&
+        (!word.has_key() || word.key() == kana)) {
       draft_conversion_value_ = word.value();
       break;
     }
