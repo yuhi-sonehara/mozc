@@ -2895,9 +2895,16 @@ void Session::Output(commands::Command* command) {
     commands::Preedit* preedit = command->mutable_output()->mutable_preedit();
     preedit->Clear();
     commands::Preedit::Segment* segment = preedit->add_segment();
+    // ⚠ Preedit.Segment の value_length は required。設定し忘れると
+    // SerializeToString が失敗し、クライアントは「互換性のない変換エンジン」
+    // を表示する（2026-10-25 の実機不具合の原因）。cursor も文字数で入れる。
+    const uint32_t draft_len =
+        static_cast<uint32_t>(Util::CharsLen(draft_conversion_value_));
+    segment->set_key(draft_conversion_value_);
     segment->set_value(draft_conversion_value_);
+    segment->set_value_length(draft_len);
     segment->set_annotation(commands::Preedit::Segment::UNDERLINE);
-    preedit->set_cursor(static_cast<int32_t>(draft_conversion_value_.size()));
+    preedit->set_cursor(draft_len);
   }
 }
 
