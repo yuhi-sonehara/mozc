@@ -283,7 +283,9 @@ class Session {
   // 入力途中の最有力変換結果をここに持ち、表示だけ変換結果にする。
   // 空文字なら通常の組成表示（かな）に戻る。
   std::string draft_conversion_value_;
-  void UpdateDraftConversion();
+  void PrepareDraftCandidates();
+  void UpdateDraftConversion(const commands::Output& output);
+  bool DraftConversionEnabled() const;
 
   // Undo stack. *begin is the oldest, and *back is the newest.
   std::deque<std::unique_ptr<ImeContext>> undo_contexts_;
