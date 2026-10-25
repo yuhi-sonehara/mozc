@@ -146,6 +146,8 @@ class Session {
   bool Convert(mozc::commands::Command* command);
   // Fork: Enter 用。日英判定でひらがなへ移した組成は Convert、それ以外は Commit。
   bool ConvertOrCommit(mozc::commands::Command* command);
+  // Fork: Space 用。判定由来の組成は空白挿入、それ以外は Convert。
+  bool SpaceOrConvert(mozc::commands::Command* command);
   // Starts conversion not using user history.  This is used for debugging.
   bool ConvertWithoutHistory(mozc::commands::Command* command);
   bool ConvertNext(mozc::commands::Command* command);
@@ -279,12 +281,11 @@ class Session {
 
   std::unique_ptr<ImeContext> context_;
 
-  // Fork: 下書き変換（仮変換）。日英判定でひらがなへ移した組成について、
-  // 入力途中の最有力変換結果をここに持ち、表示だけ変換結果にする。
+  // Fork: 下書き変換（ライブ変換）。日英判定でひらがなへ移した組成について、
+  // 打鍵のたびに変換器で最有力候補を求めて保持し、表示だけ変換結果にする。
   // 空文字なら通常の組成表示（かな）に戻る。
   std::string draft_conversion_value_;
-  void PrepareDraftCandidates();
-  void UpdateDraftConversion(const commands::Output& output);
+  void UpdateDraftConversion();
   bool DraftConversionEnabled() const;
 
   // Undo stack. *begin is the oldest, and *back is the newest.

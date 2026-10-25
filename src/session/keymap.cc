@@ -586,6 +586,8 @@ void KeyMapManager::InitCommandData() {
   RegisterCompositionCommand("Convert", CompositionState::CONVERT);
   RegisterCompositionCommand("ConvertOrCommit",
                              CompositionState::CONVERT_OR_COMMIT);
+  RegisterCompositionCommand("SpaceOrConvert",
+                             CompositionState::SPACE_OR_CONVERT);
   RegisterCompositionCommand("ConvertWithoutHistory",
                              CompositionState::CONVERT_WITHOUT_HISTORY);
   RegisterCompositionCommand("PredictAndConvert",

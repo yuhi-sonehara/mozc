@@ -741,6 +741,9 @@ bool Session::SendKeyCompositionState(commands::Command* command) {
     case keymap::CompositionState::CONVERT_OR_COMMIT:
       return ConvertOrCommit(command);
 
+    case keymap::CompositionState::SPACE_OR_CONVERT:
+      return SpaceOrConvert(command);
+
     case keymap::CompositionState::CONVERT_WITHOUT_HISTORY:
       return ConvertWithoutHistory(command);
 
@@ -1567,6 +1570,13 @@ bool Session::InsertCharacter(commands::Command* command) {
   }
 
   SetSessionState(ImeContext::COMPOSITION, context_.get());
+  // Fork: 判定由来の組成では、打鍵のたびに下書き（ライブ変換）を更新して表示する。
+  // 下書きがあるときは候補ウィンドウを出さない（Suggest は呼ばない）。
+  UpdateDraftConversion();
+  if (!draft_conversion_value_.empty()) {
+    Output(command);
+    return true;
+  }
   if (CanStartAutoConversion(key)) {
     return Convert(command);
   }
@@ -2426,6 +2436,18 @@ bool Session::ConvertOrCommit(commands::Command* command) {
   return Commit(command);
 }
 
+bool Session::SpaceOrConvert(commands::Command* command) {
+  // Fork: 判定由来の組成（ハイブリッド入力）では Space を空白として扱う。
+  // 変換は Enter に集約し、内部のモードを意識せずに済むようにする。
+  // 手動でひらがなにした組成は素の Mozc と同じく変換。
+  if (composer::jev::GetModeOrigin() ==
+      composer::jev::ModeOrigin::kAutoSwitchedByJudge) {
+    command->mutable_input()->mutable_key()->set_key_code(' ');
+    return InsertCharacter(command);
+  }
+  return Convert(command);
+}
+
 bool Session::Convert(commands::Command* command) {
   command->mutable_output()->set_consumed(true);
   draft_conversion_value_.clear();
@@ -2805,12 +2827,15 @@ void Session::OutputFromState(commands::Command* command) {
   Output(command);
 }
 
-// Fork: 下書き変換（仮変換）。日英判定でひらがなへ移した組成について、
-// すでに計算済みの候補（all_candidate_words）から「読み＝組成全体」のものを
-// 拾って表示に使う。⚠ 変換器は一切呼ばない（呼ぶと内部状態の検査で落ちる。
-// 2026-10-25 実機で 0xc0000409 クラッシュ）。
-void Session::UpdateDraftConversion(const commands::Output& output) {
+// Fork: 下書き変換（ライブ変換）。日英判定でひらがなへ移した組成について、
+// 打鍵のたびに変換器で最有力候補を求めて保持する。
+// ⚠ 変換器は「組成状態のときだけ」触り、呼んだら必ず Cancel で組成へ戻す。
+//    状態を残したまま次の打鍵で Convert すると検査に落ちる（0xc0000409）。
+void Session::UpdateDraftConversion() {
   draft_conversion_value_.clear();
+  if (!DraftConversionEnabled()) {
+    return;
+  }
   if (context_->state() != ImeContext::COMPOSITION) {
     return;
   }
@@ -2821,26 +2846,24 @@ void Session::UpdateDraftConversion(const commands::Output& output) {
       composer::jev::ModeOrigin::kAutoSwitchedByJudge) {
     return;
   }
-  if (!DraftConversionEnabled()) {
+  // 予測・サジェスト状態が残っていれば、いったん組成へ戻す。
+  if (context_->converter().IsActive()) {
+    context_->mutable_converter()->Cancel();
+  }
+  if (context_->converter().IsActive()) {
     return;
   }
-  const std::string kana = context_->composer().GetStringForPreedit();
-  if (kana.empty()) {
+  if (!context_->mutable_converter()->Convert(context_->composer(),
+                                              context_->client_context())) {
     return;
   }
-  // key は「読みが組成と異なるとき」だけ入る（candidate_window.proto の仕様）。
-  // 組成全体に対応する候補は key 未設定なので、それも対象にする。
-  for (const commands::CandidateWord& word :
-       output.all_candidate_words().candidates()) {
-    if (!word.value().empty() && word.value() != kana &&
-        (!word.has_key() || word.key() == kana)) {
-      draft_conversion_value_ = word.value();
-      break;
-    }
-  }
-  if (draft_conversion_value_.empty()) {
+  const std::string value = context_->converter().GetDraftConversionValue();
+  // 読んだらすぐ組成状態へ戻す（表示は Output が value を使う）。
+  context_->mutable_converter()->Cancel();
+  if (value.empty() || value == context_->composer().GetStringForPreedit()) {
     return;
   }
+  draft_conversion_value_ = value;
   // 診断: 下書きが変わったときだけ1行残す（毎打鍵の I/O を増やさない）。
   static thread_local std::string last_logged_draft;
   if (draft_conversion_value_ != last_logged_draft) {
@@ -2862,35 +2885,13 @@ bool Session::DraftConversionEnabled() const {
   return enabled;
 }
 
-// Fork: 下書き変換の材料づくり。判定由来の組成では、変換器の Suggest を
-// 1回だけ回して候補（all_candidate_words）を用意する。Suggest は入力途中に
-// 呼ばれる前提の API で、状態を SUGGESTION/PREDICTION にしても組成は壊れない。
-void Session::PrepareDraftCandidates() {
-  if (context_->state() != ImeContext::COMPOSITION) {
-    return;
-  }
-  if (context_->composer().Empty()) {
-    return;
-  }
-  if (composer::jev::GetModeOrigin() !=
-      composer::jev::ModeOrigin::kAutoSwitchedByJudge) {
-    return;
-  }
-  if (!DraftConversionEnabled()) {
-    return;
-  }
-  context_->mutable_converter()->Suggest(context_->composer(),
-                                         context_->client_context());
-}
-
 void Session::Output(commands::Command* command) {
-  PrepareDraftCandidates();
   OutputMode(command);
   context_->mutable_converter()->PopOutput(context_->composer(),
                                            command->mutable_output());
-  // Fork: 下書き変換の表示。PopOutput が用意した候補から拾うだけで、
-  // 変換器の状態は動かさない。
-  UpdateDraftConversion(command->output());
+  if (context_->state() != ImeContext::COMPOSITION) {
+    draft_conversion_value_.clear();
+  }
   if (!draft_conversion_value_.empty()) {
     commands::Preedit* preedit = command->mutable_output()->mutable_preedit();
     preedit->Clear();

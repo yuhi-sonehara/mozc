@@ -124,6 +124,9 @@ struct CompositionState {
     COMMIT,                   // Move to Precomposition status.
     COMMIT_FIRST_SUGGESTION,  // ATOK's Shift-Enter style
     CONVERT,                  // Move to Conversion status.
+    // Fork: 判定由来の組成では空白を挿入し、それ以外では従来どおり Convert。
+    // ハイブリッド入力で Space の意味を一定にするために使う。
+    SPACE_OR_CONVERT,
     // Fork: Enter を「判定由来の組成なら文全体の変換、それ以外は確定」に使う。
     // 半角英数から日英判定でひらがなへ移った組成だけ Convert へ回す。
     CONVERT_OR_COMMIT,

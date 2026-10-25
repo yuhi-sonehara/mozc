@@ -56,7 +56,7 @@ Composition	Shift Left	MoveCursorLeft
 Composition	Shift Muhenkan	ConvertToFullAlphanumeric
 Composition	Shift Right	MoveCursorRight
 Composition	Shift Space	Convert
-Composition	Space	Convert
+Composition	Space	SpaceOrConvert
 Composition	Tab	PredictAndConvert
 Composition	VirtualLeft	MoveCursorLeft
 Composition	VirtualRight	MoveCursorRight
