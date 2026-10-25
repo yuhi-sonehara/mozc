@@ -1802,8 +1802,11 @@ bool Session::CommitInternal(commands::Command* command,
   const bool draft_conversion = !draft_conversion_value_.empty();
   draft_conversion_value_.clear();
   if (draft_conversion) {
-    // Fork: 下書き変換を表示していた場合は、その変換結果をそのまま確定する
-    // （表示と確定の食い違いを防ぐ）。
+    // Fork: 下書き変換を表示していた場合は、その変換結果を確定する
+    // （表示と確定の食い違いを防ぐ）。下書き更新時に Cancel() で
+    // セグメントを破棄しているため、ここで組み直してから確定する。
+    context_->mutable_converter()->Convert(context_->composer(),
+                                           command->input().context());
     context_->mutable_converter()->Commit(context_->composer(),
                                           command->input().context());
   } else if (context_->state() == ImeContext::COMPOSITION) {
@@ -2811,9 +2814,20 @@ void Session::UpdateDraftConversion() {
     return;
   }
   draft_conversion_value_ = context_->converter().GetDraftConversionValue();
+  // ⚠ 変換器を組成状態へ戻す。CONVERSION のままにすると PopOutput が
+  // result（確定テキスト）まで埋めてしまい、TIP が「組成が終わった」と判断して
+  // 打鍵のたびに組成を破棄する（2026-10-25 実機で発生）。
+  context_->mutable_converter()->Cancel();
   if (draft_conversion_value_.empty() ||
       draft_conversion_value_ == context_->composer().GetStringForPreedit()) {
     draft_conversion_value_.clear();
+  }
+  // 診断: 下書きが変わったときだけ1行残す（毎打鍵の I/O を増やさない）。
+  static thread_local std::string last_logged_draft;
+  if (!draft_conversion_value_.empty() &&
+      draft_conversion_value_ != last_logged_draft) {
+    last_logged_draft = draft_conversion_value_;
+    composer::jev::DebugLog("draft: \"" + draft_conversion_value_ + "\"\n");
   }
 }
 
