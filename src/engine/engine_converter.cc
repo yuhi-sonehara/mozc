@@ -68,6 +68,10 @@ namespace mozc {
 namespace engine {
 namespace {
 
+// Fork: 下書き変換（ライブ変換）で末尾を保持する文字数。末尾セグメントの読みが
+// これ未満のときは変換せず、かなのまま表示する（「で→出」のような表記揺れ対策）。
+constexpr size_t kDraftTailHoldChars = 3;
+
 using ::mozc::commands::Request;
 using ::mozc::config::Config;
 
@@ -703,13 +707,18 @@ void EngineConverter::Cancel() {
 // 最有力候補を連結する。候補が無いセグメントは読みをそのまま使う。
 std::string EngineConverter::GetDraftConversionValue() const {
   std::string out;
-  for (size_t i = 0; i < segments_.conversion_segments_size(); ++i) {
+  const size_t n = segments_.conversion_segments_size();
+  for (size_t i = 0; i < n; ++i) {
     const converter::Segment& seg = segments_.conversion_segment(i);
-    if (seg.candidates_size() > 0) {
-      out += seg.candidate(0).value;
-    } else {
-      out += seg.key();
+    std::string value =
+        (seg.candidates_size() > 0) ? seg.candidate(0).value : seg.key();
+    // Fork: 末尾セグメントが短い（kDraftTailHoldChars 文字未満）ときは変換せず、
+    // 読み（かな）のまま残す。入力途中の「で→出」のような表記揺れを抑えるため。
+    if (i + 1 == n && kDraftTailHoldChars > 0 &&
+        Util::CharsLen(seg.key()) < kDraftTailHoldChars) {
+      value = seg.key();
     }
+    out += value;
   }
   return out;
 }
