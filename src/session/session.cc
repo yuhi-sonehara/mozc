@@ -1163,6 +1163,7 @@ bool Session::Revert(commands::Command* command) {
   ClearUndoContext();
 
   SetStateToPredompositionAndCancel(context_.get());
+  MaybeReturnToHalfAscii();
   Output(command);
   return true;
 }
@@ -1179,6 +1180,7 @@ bool Session::ResetContext(commands::Command* command) {
   context_->mutable_converter()->Reset();
 
   SetStateToPredompositionAndCancel(context_.get());
+  MaybeReturnToHalfAscii();
   Output(command);
   return true;
 }
@@ -1763,6 +1765,7 @@ bool Session::EditCancel(commands::Command* command) {
   TryCancelConvertReverse(command);
 
   SetStateToPredompositionAndCancel(context_.get());
+  MaybeReturnToHalfAscii();
   Output(command);
   return true;
 }
@@ -1820,16 +1823,9 @@ bool Session::CommitInternal(commands::Command* command,
     CommitStringDirectly(draft_raw, draft_value, command);
     // CommitStringDirectly は状態を PRECOMPOSITION にし、Output まで済ませる。
     // 判定由来の組成だけ、ここで半角英数へ自動復帰させる。
-    if (composer::jev::GetModeOrigin() ==
-            composer::jev::ModeOrigin::kAutoSwitchedByJudge &&
-        context_->composer().GetInputMode() == transliteration::HIRAGANA) {
-      SwitchInputMode(transliteration::HALF_ASCII, context_->mutable_composer());
-      composer::jev::ClearModeOrigin();
-      // 自動復帰なので、クライアントのモード表示は出さない。
-      suppress_mode_indicator_once_ = true;
-      // CommitStringDirectly が先に出力済みなので、切替後のモードを送り直す。
-      Output(command);
-    }
+    MaybeReturnToHalfAscii();
+    // CommitStringDirectly が先に出力済みなので、切替後のモードを送り直す。
+    Output(command);
     return true;
   }
   if (context_->state() == ImeContext::COMPOSITION) {
@@ -1848,14 +1844,7 @@ bool Session::CommitInternal(commands::Command* command,
   // よう何もしない。
   // 注: 直上の SetSessionState が Composer::Reset() を呼び、
   // input mode は comeback (=ひらがな) へ戻っているため、ここで戻す。
-  if (composer::jev::GetModeOrigin() ==
-          composer::jev::ModeOrigin::kAutoSwitchedByJudge &&
-      context_->composer().GetInputMode() == transliteration::HIRAGANA) {
-    SwitchInputMode(transliteration::HALF_ASCII, context_->mutable_composer());
-    composer::jev::ClearModeOrigin();
-    // 自動復帰なので、クライアントのモード表示は出さない（次の Output で送る）。
-    suppress_mode_indicator_once_ = true;
-  }
+  MaybeReturnToHalfAscii();
 
   if (trigger_zero_query_suggest) {
     Suggest(command->input());
@@ -2672,6 +2661,7 @@ bool Session::Delete(commands::Command* command) {
   ClearUndoContext();
   if (context_->mutable_composer()->Empty()) {
     SetStateToPredompositionAndCancel(context_.get());
+    MaybeReturnToHalfAscii();
     Output(command);
   } else {
     // Fork: 判定由来の組成では、削除後も下書き（ライブ変換）を更新して表示する。
@@ -2695,6 +2685,7 @@ bool Session::Backspace(commands::Command* command) {
   ClearUndoContext();
   if (context_->mutable_composer()->Empty()) {
     SetStateToPredompositionAndCancel(context_.get());
+    MaybeReturnToHalfAscii();
     Output(command);
   } else {
     // Fork: 判定由来の組成では、取り消し後も下書き（ライブ変換）を更新して表示する。
@@ -2846,6 +2837,27 @@ void Session::OutputFromState(commands::Command* command) {
     return;
   }
   Output(command);
+}
+
+// Fork: 組成が終わった時点で、判定由来のモード切替を半角英数へ戻す。
+// 確定・取消・全削除など、組成が終わる経路すべてから呼ぶ（呼び忘れると
+// ひらがなモードのまま取り残され、次の文が素の入力になる）。
+void Session::MaybeReturnToHalfAscii() {
+  if (composer::jev::GetModeOrigin() !=
+      composer::jev::ModeOrigin::kAutoSwitchedByJudge) {
+    return;
+  }
+  if (!context_->composer().Empty()) {
+    return;  // まだ組成が残っている（部分確定など）
+  }
+  if (context_->composer().GetInputMode() != transliteration::HIRAGANA) {
+    composer::jev::ClearModeOrigin();
+    return;
+  }
+  SwitchInputMode(transliteration::HALF_ASCII, context_->mutable_composer());
+  composer::jev::ClearModeOrigin();
+  // 自動復帰なので、クライアントのモード表示は出さない（次の Output で送る）。
+  suppress_mode_indicator_once_ = true;
 }
 
 // Fork: 組成に ASCII（英単語トークン）が含まれるか。含まれる組成を変換器に

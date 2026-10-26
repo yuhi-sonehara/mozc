@@ -288,6 +288,8 @@ class Session {
   // Fork: 自動復帰（判定由来の確定）でモードが変わるとき、1回だけモード表示を
   // 抑えるためのフラグ。
   bool suppress_mode_indicator_once_ = false;
+  // Fork: 組成が終わった時点で、判定由来のモード切替を半角英数へ戻す。
+  void MaybeReturnToHalfAscii();
   void UpdateDraftConversion();
   void TryDraftFromCandidates(const commands::Output& output);
   bool DraftConversionEnabled() const;
