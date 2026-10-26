@@ -1440,6 +1440,10 @@ message Output {
   // using any personal data.
   optional CandidateList incognito_candidate_words = 25;
 
+  // Fork: 日英判定による自動切替など、ユーザー操作ではないモード変更のときに
+  // モード表示（インジケーター）を出さないためのフラグ。
+  optional bool suppress_mode_indicator = 26 [default = false];
+
   message VersionInfo {
     optional string mozc_version = 1;
     optional string data_version = 2;

@@ -1825,6 +1825,8 @@ bool Session::CommitInternal(commands::Command* command,
         context_->composer().GetInputMode() == transliteration::HIRAGANA) {
       SwitchInputMode(transliteration::HALF_ASCII, context_->mutable_composer());
       composer::jev::ClearModeOrigin();
+      // 自動復帰なので、クライアントのモード表示は出さない。
+      suppress_mode_indicator_once_ = true;
       // CommitStringDirectly が先に出力済みなので、切替後のモードを送り直す。
       Output(command);
     }
@@ -1851,6 +1853,8 @@ bool Session::CommitInternal(commands::Command* command,
       context_->composer().GetInputMode() == transliteration::HIRAGANA) {
     SwitchInputMode(transliteration::HALF_ASCII, context_->mutable_composer());
     composer::jev::ClearModeOrigin();
+    // 自動復帰なので、クライアントのモード表示は出さない（次の Output で送る）。
+    suppress_mode_indicator_once_ = true;
   }
 
   if (trigger_zero_query_suggest) {
@@ -2961,6 +2965,14 @@ void Session::Output(commands::Command* command) {
   OutputMode(command);
   context_->mutable_converter()->PopOutput(context_->composer(),
                                            command->mutable_output());
+  // Fork: 日英判定による自動切替（と確定時の自動復帰）では、クライアントの
+  // モード表示を出さない。手動の Ctrl+Space などは従来どおり表示する。
+  if (composer::jev::GetModeOrigin() ==
+          composer::jev::ModeOrigin::kAutoSwitchedByJudge ||
+      suppress_mode_indicator_once_) {
+    command->mutable_output()->set_suppress_mode_indicator(true);
+  }
+  suppress_mode_indicator_once_ = false;
   if (context_->state() != ImeContext::COMPOSITION) {
     draft_conversion_value_.clear();
   } else if (draft_conversion_value_.empty()) {

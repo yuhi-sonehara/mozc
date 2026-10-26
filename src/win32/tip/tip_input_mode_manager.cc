@@ -256,6 +256,11 @@ TipInputModeManager::Action TipInputModeManager::OnChangeConversionMode(
   }
 
   if (prev_effective.conversion_mode != mozc_state_.conversion_mode) {
+    if (suppress_next_indicator_) {
+      // Fork: 日英判定による自動切替ではモード表示を出さない（状態だけ更新する）。
+      suppress_next_indicator_ = false;
+      return kDoNothing;
+    }
     indicator_visibility_tracker_.OnChangeInputMode();
     return kUpdateUI;
   }

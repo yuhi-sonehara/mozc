@@ -107,6 +107,10 @@ class TipInputModeManager : public TipInputModeManagerImpl {
   NotifyActionSet OnReceiveCommand(bool mozc_open_close_mode,
                                    commands::CompositionMode mozc_logical_mode,
                                    commands::CompositionMode mozc_visible_mode);
+  // Fork: 次のモード変更でインジケーターを出さない（自動切替用）。
+  void SetSuppressNextIndicator(bool suppress) {
+    suppress_next_indicator_ = suppress;
+  }
   Action OnSetFocus(bool system_open_close_mode, DWORD system_conversion_mode,
                     absl::Span<const InputScope> input_scopes);
   Action OnChangeOpenClose(bool new_open_close_mode);
@@ -127,6 +131,8 @@ class TipInputModeManager : public TipInputModeManagerImpl {
   StatePair mozc_state_;
   StatePair tsf_state_;
   IndicatorVisibilityTracker indicator_visibility_tracker_;
+  // Fork: 自動切替の直後だけインジケーターを抑える。
+  bool suppress_next_indicator_ = false;
   std::vector<InputScope> input_scope_;
 };
 

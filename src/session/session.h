@@ -285,6 +285,9 @@ class Session {
   // 打鍵のたびに変換器で最有力候補を求めて保持し、表示だけ変換結果にする。
   // 空文字なら通常の組成表示（かな）に戻る。
   std::string draft_conversion_value_;
+  // Fork: 自動復帰（判定由来の確定）でモードが変わるとき、1回だけモード表示を
+  // 抑えるためのフラグ。
+  bool suppress_mode_indicator_once_ = false;
   void UpdateDraftConversion();
   void TryDraftFromCandidates(const commands::Output& output);
   bool DraftConversionEnabled() const;

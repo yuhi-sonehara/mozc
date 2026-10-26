@@ -439,6 +439,9 @@ HRESULT UpdatePrivateContext(TipTextService* text_service, ITfContext* context,
 
   if ((action_set & TipInputModeManager::kNotifySystemConversionMode) ==
       TipInputModeManager::kNotifySystemConversionMode) {
+    // Fork: 日英判定による自動切替ではモード表示（インジケーター）を出さない。
+    input_mode_manager->SetSuppressNextIndicator(
+        output.suppress_mode_indicator());
     const CompositionMode mozc_mode =
         input_mode_manager->GetEffectiveConversionMode();
     uint32_t native_mode = 0;
