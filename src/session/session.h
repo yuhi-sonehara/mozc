@@ -290,6 +290,9 @@ class Session {
   bool suppress_mode_indicator_once_ = false;
   // Fork: 組成が終わった時点で、判定由来のモード切替を半角英数へ戻す。
   void MaybeReturnToHalfAscii();
+  // Fork: 自動復帰のあと、クライアントが追いつくまでのキーに載っている
+  // 古いモードを無視するためのフラグ。
+  bool server_mode_locked_ = false;
   void UpdateDraftConversion();
   void TryDraftFromCandidates(const commands::Output& output);
   bool DraftConversionEnabled() const;

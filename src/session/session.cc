@@ -1498,7 +1498,18 @@ bool Session::InsertCharacter(commands::Command* command) {
     return false;
   }
 
-  const commands::KeyEvent& key = command->input().key();
+  commands::KeyEvent key = command->input().key();
+  if (server_mode_locked_) {
+    // Fork: 自動復帰の直後は、クライアントがまだ古いモードを持っている。
+    // サーバー側のモードと異なるモードが載っているキーは、そのモードを無視して
+    // サーバーを優先する。クライアントが追いついたらロックを解除する。
+    if (key.has_mode() &&
+        key.mode() != ToCompositionMode(context_->composer().GetInputMode())) {
+      key.clear_mode();
+    } else {
+      server_mode_locked_ = false;
+    }
+  }
 
   if (key.input_style() == commands::KeyEvent::DIRECT_INPUT &&
       context_->state() == ImeContext::PRECOMPOSITION) {
@@ -2401,6 +2412,8 @@ bool Session::ToggleAlphanumericMode(commands::Command* command) {
   // （kAutoSwitchedByJudge のときだけ HALF_ASCII へ戻す）をユーザー意図で
   // 打ち消すために使う。
   composer::jev::SetModeOrigin(composer::jev::ModeOrigin::kManualByUser);
+  // ユーザーの明示的な切替が最優先。自動復帰のロックは解除する。
+  server_mode_locked_ = false;
   context_->mutable_composer()->ToggleInputMode();
 
   OutputFromState(command);
@@ -2858,6 +2871,8 @@ void Session::MaybeReturnToHalfAscii() {
   composer::jev::ClearModeOrigin();
   // 自動復帰なので、クライアントのモード表示は出さない（次の Output で送る）。
   suppress_mode_indicator_once_ = true;
+  // クライアントが追いつくまで、キーに載っている古いモードを無視する。
+  server_mode_locked_ = true;
 }
 
 // Fork: 組成に ASCII（英単語トークン）が含まれるか。含まれる組成を変換器に
