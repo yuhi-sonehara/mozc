@@ -710,13 +710,17 @@ std::string EngineConverter::GetDraftConversionValue() const {
   const size_t n = segments_.conversion_segments_size();
   for (size_t i = 0; i < n; ++i) {
     const converter::Segment& seg = segments_.conversion_segment(i);
-    std::string value =
-        (seg.candidates_size() > 0) ? seg.candidate(0).value : seg.key();
+    std::string value;
+    if (seg.candidates_size() > 0) {
+      value.assign(seg.candidate(0).value);
+    } else {
+      value.assign(seg.key());
+    }
     // Fork: 末尾セグメントが短い（kDraftTailHoldChars 文字未満）ときは変換せず、
     // 読み（かな）のまま残す。入力途中の「で→出」のような表記揺れを抑えるため。
     if (i + 1 == n && kDraftTailHoldChars > 0 &&
         Util::CharsLen(seg.key()) < kDraftTailHoldChars) {
-      value = seg.key();
+      value.assign(seg.key());
     }
     out += value;
   }
