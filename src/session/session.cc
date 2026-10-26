@@ -2669,10 +2669,18 @@ bool Session::Delete(commands::Command* command) {
   if (context_->mutable_composer()->Empty()) {
     SetStateToPredompositionAndCancel(context_.get());
     Output(command);
-  } else if (Suggest(command->input())) {
-    Output(command);
   } else {
-    OutputComposition(command);
+    // Fork: 判定由来の組成では、削除後も下書き（ライブ変換）を更新して表示する。
+    UpdateDraftConversion();
+    if (!draft_conversion_value_.empty()) {
+      Output(command);
+      return true;
+    }
+    if (Suggest(command->input())) {
+      Output(command);
+    } else {
+      OutputComposition(command);
+    }
   }
   return true;
 }
@@ -2684,10 +2692,19 @@ bool Session::Backspace(commands::Command* command) {
   if (context_->mutable_composer()->Empty()) {
     SetStateToPredompositionAndCancel(context_.get());
     Output(command);
-  } else if (Suggest(command->input())) {
-    Output(command);
   } else {
-    OutputComposition(command);
+    // Fork: 判定由来の組成では、取り消し後も下書き（ライブ変換）を更新して表示する。
+    // 候補ウィンドウは出さない（Suggest を呼ばない）。
+    UpdateDraftConversion();
+    if (!draft_conversion_value_.empty()) {
+      Output(command);
+      return true;
+    }
+    if (Suggest(command->input())) {
+      Output(command);
+    } else {
+      OutputComposition(command);
+    }
   }
   return true;
 }
