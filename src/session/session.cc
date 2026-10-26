@@ -2827,6 +2827,19 @@ void Session::OutputFromState(commands::Command* command) {
   Output(command);
 }
 
+// Fork: 組成に ASCII（英単語トークン）が含まれるか。含まれる組成を変換器に
+// かけると "web" が「ウェb」のように壊れるため、その場合は変換器を使わず
+// サジェスト候補からの下書き（TryDraftFromCandidates）に任せる。
+bool HasAsciiToken(const std::string &text) {
+  for (const char c : text) {
+    if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+        (c >= '0' && c <= '9')) {
+      return true;
+    }
+  }
+  return false;
+}
+
 // Fork: 下書き変換（ライブ変換）。日英判定でひらがなへ移した組成について、
 // 打鍵のたびに変換器で最有力候補を求めて保持する。
 // ⚠ 変換器は「組成状態のときだけ」触り、呼んだら必ず Cancel で組成へ戻す。
@@ -2844,6 +2857,10 @@ void Session::UpdateDraftConversion() {
   }
   if (composer::jev::GetModeOrigin() !=
       composer::jev::ModeOrigin::kAutoSwitchedByJudge) {
+    return;
+  }
+  // 英単語トークンを含む組成は変換器にかけない（候補側で処理する）。
+  if (HasAsciiToken(context_->composer().GetStringForPreedit())) {
     return;
   }
   // 予測・サジェスト状態が残っていれば、いったん組成へ戻す。
@@ -2872,6 +2889,44 @@ void Session::UpdateDraftConversion() {
   }
 }
 
+// Fork: 英単語トークンを含む組成向けの下書き。Suggest が用意した候補
+// （all_candidate_words）から「読み＝組成全体」のものを拾う。変換器は使わない。
+void Session::TryDraftFromCandidates(const commands::Output &output) {
+  if (!DraftConversionEnabled()) {
+    return;
+  }
+  if (context_->state() != ImeContext::COMPOSITION) {
+    return;
+  }
+  if (context_->composer().Empty()) {
+    return;
+  }
+  if (composer::jev::GetModeOrigin() !=
+      composer::jev::ModeOrigin::kAutoSwitchedByJudge) {
+    return;
+  }
+  const std::string kana = context_->composer().GetStringForPreedit();
+  if (kana.empty()) {
+    return;
+  }
+  for (const commands::CandidateWord &word :
+       output.all_candidate_words().candidates()) {
+    if (!word.value().empty() && word.value() != kana &&
+        (!word.has_key() || word.key() == kana)) {
+      draft_conversion_value_ = word.value();
+      break;
+    }
+  }
+  if (draft_conversion_value_.empty()) {
+    return;
+  }
+  static thread_local std::string last_logged_mixed;
+  if (draft_conversion_value_ != last_logged_mixed) {
+    last_logged_mixed = draft_conversion_value_;
+    composer::jev::DebugLog("draft(mixed): \"" + draft_conversion_value_ + "\"\n");
+  }
+}
+
 // Fork: 下書き変換の kill switch。環境変数 MOZC_JEV_DRAFT=0 で無効化できる
 // （再ビルド・再インストールなしで切り戻せるようにするため）。
 bool Session::DraftConversionEnabled() const {
@@ -2891,6 +2946,10 @@ void Session::Output(commands::Command* command) {
                                            command->mutable_output());
   if (context_->state() != ImeContext::COMPOSITION) {
     draft_conversion_value_.clear();
+  } else if (draft_conversion_value_.empty()) {
+    // 変換器由来の下書きが無い場合（英単語トークンを含む組成など）は、
+    // Suggest が用意した候補から拾う。
+    TryDraftFromCandidates(command->output());
   }
   if (!draft_conversion_value_.empty()) {
     commands::Preedit* preedit = command->mutable_output()->mutable_preedit();

@@ -286,6 +286,7 @@ class Session {
   // 空文字なら通常の組成表示（かな）に戻る。
   std::string draft_conversion_value_;
   void UpdateDraftConversion();
+  void TryDraftFromCandidates(const commands::Output& output);
   bool DraftConversionEnabled() const;
 
   // Undo stack. *begin is the oldest, and *back is the newest.
