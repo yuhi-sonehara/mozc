@@ -2441,12 +2441,18 @@ bool Session::DeleteCandidateFromHistory(commands::Command* command) {
 
 bool Session::ConvertOrCommit(commands::Command* command) {
   // Fork: 日英判定フックがひらがなへ切り替えた組成では、Enter を「文全体の変換」に
-  // 使う（Space は素のまま空白挿入）。ユーザーが自分で切り替えた場合や、判定を
-  // 経ていない組成は、素の Mozc と同じく確定する。
+  // 使う（Space は素のまま空白挿入）。
   if (composer::jev::GetModeOrigin() ==
       composer::jev::ModeOrigin::kAutoSwitchedByJudge) {
     return Convert(command);
   }
+  // 2026-10-28: 半角英数の組成も必ず変換モードを挟む。判定が日本語を英語と誤った
+  // 場合に、Enter が即確定して変換の機会を失うのを防ぐ（ご主人様の指示）。
+  if (!context_->composer().Empty() &&
+      context_->composer().GetInputMode() == transliteration::HALF_ASCII) {
+    return Convert(command);
+  }
+  // ユーザーが自分で切り替えた場合や、判定を経ていない組成は素の Mozc と同じく確定。
   return Commit(command);
 }
 
@@ -3000,9 +3006,11 @@ void Session::Output(commands::Command* command) {
   OutputMode(command);
   context_->mutable_converter()->PopOutput(context_->composer(),
                                            command->mutable_output());
-  // Fork: 候補ウィンドウは変換修正モード（CONVERSION）でのみ出す。入力中
-  // （COMPOSITION）に出る予測候補は邪魔なので落とす（2026-10-28 ご主人様の指摘）。
-  if (context_->state() == ImeContext::COMPOSITION) {
+  // Fork: 候補ウィンドウは変換修正モード（CONVERSION）でのみ出す。ただし素の
+  // かな入力の予測候補は残す（2026-10-28 ご主人様の指示）。半角英数の組成中に
+  // 出る予測候補だけを落とす。
+  if (context_->state() == ImeContext::COMPOSITION &&
+      context_->composer().GetInputMode() == transliteration::HALF_ASCII) {
     command->mutable_output()->clear_candidate_window();
   }
   // Fork: 日英判定による自動切替（と確定時の自動復帰）では、クライアントの
