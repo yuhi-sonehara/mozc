@@ -314,3 +314,49 @@ diff <(norm "$S/out/new.txt") <(norm "$S/out/old.txt") >/dev/null && echo NEW_ER
 - 確定テキスト記録の実機検証は `judge_commits.jsonl` の1件で行う（`{"ts","v","keys","text","mode","source"}`）。スモーク由来の記録はラベル生成時に除外できる。
 - PS スクリプトは ASCII のみで書く（CP932 誤読対策・恒久）。
 
+
+## 現行アーキテクチャ（2026-10-27 時点・この節が最新）
+
+上の Hermes 時代の記述のうち、**en 方向（かな→英字）・Space=変換・略語分割**は廃止済み。
+現行は次の構成。
+
+### 判定と組成
+- ハイブリッドは**半角英数モード限定**。ひらがなモードは素の Mozc。
+- ja 判定（conf >= 0.90）でひらがなへ移り、判定サーバーが返す segs（例 en:web|ja:wohiraku）
+  で英単語を半角のまま残した混在組成に組み直す（MaybeConvertToKana）。
+- 入力途中の**下書き（ライブ変換）**: Session::Output が preedit だけ変換結果に差し替える。
+  値は converter->Convert() の結果。**英単語を含む組成では変換器を使わず**候補
+  （ll_candidate_words）から拾う（web が ウェb に壊れるため）。
+  末尾セグメントが3文字未満ならかなのまま保持（kDraftTailHoldChars）。
+- **Enter は ConvertOrCommit**（判定由来の組成だけ文全体を変換、それ以外は確定）。
+- **Space は SpaceOrConvert**（判定由来は空白、それ以外は従来どおり変換）。
+- 組成が終わる全経路（確定・取消・空削除）で MaybeReturnToHalfAscii が半角英数へ戻す。
+  戻した直後は server_mode_locked_ でクライアントの古いモードを無視する（追いつくまで）。
+- モード表示は自動切替では出さない: Output.suppress_mode_indicator（フィールド **27**）→
+  TIP の TipInputModeManager::SetSuppressNextIndicator が消費。手動 Ctrl+Space は表示する。
+- kill switch: 環境変数 MOZC_JEV_DRAFT=0 で下書きを無効化。
+
+### 触るときの罠（実測）
+- Preedit.Segment は **value_length が required**。手組みで落とすとシリアライズが失敗し、
+  クライアントが「互換性のない変換エンジン」を出す（クラッシュはしない）。
+- proto のフィールド番号は既存と衝突しないこと（26 は server_version）。衝突は protoc が
+  「already been used」で止める。
+- Session::Output の中で converter->Convert() を呼ぶと状態検査で 0xc0000409 になる。
+  下書きは「キー処理の側で計算し、Output では読むだけ」にする。
+- サーバー exe だけ差し替えても、TIP はプロセスごとに古い DLL を掴む。**TIP を変えたときは
+  MSI から tip64/tip32 も差し替え、アプリを完全再起動**する。
+- mozc_server を手動起動して生死を判定しない（ランチャー経由でないと 0xc0000409 で落ちる）。
+
+### 評価基盤（C:\Users\yuhi1\tools\jev-ime-win\tools\eval）
+- uild_eval_set.py → eval_set.jsonl（確定記録＋ケース集＋英語サンプル、約1,677件）
+- eval_engine.py: product view（日本語が ASCII のまま / 英語がかな化）を出力
+- eatures.py + usion_experiment.py: 特徴融合（LR）の実験。**既存特徴の再重み付けでは
+  ルール連鎖に勝てない**（適合率で劣る）
+- ugment_vocab.py: かな語彙の拡張（活用形・助詞。実入力からも抽出）
+- 2026-10-27 時点: 日本語の取りこぼし 2.4% / 英語のかな化 2.2%（ja 再現 0.976・適合 0.987）
+
+### 判定サーバーの起動は「見張りタスク」経由にする（2026-10-27 実測）
+DSH のコマンドから Start-Process で判定サーバーを起動すると、そのコマンドのジョブを
+終了・キャンセルしたときに**子プロセスごと巻き添えで落ちる**（実際に起きた）。
+起動は schtasks /run /tn "jev-judge-server-watchdog" を使う。タスクから起動された
+プロセスは DSH のジョブツリーに属さないため残る。5分ごとの自動復旧も同じ経路。
