@@ -130,10 +130,6 @@ Conversion	Up	ConvertPrev
 Conversion	VirtualLeft	SegmentWidthShrink
 Conversion	VirtualRight	SegmentWidthExpand
 Conversion	VirtualEnter	CommitOnlyFirstSegment
-Conversion	h	SegmentFocusLeft
-Conversion	j	ConvertNext
-Conversion	k	ConvertPrev
-Conversion	l	SegmentFocusRight
 DirectInput	Ctrl Space	ToggleAlphanumericMode
 DirectInput	Eisu	IMEOn
 DirectInput	F13	IMEOn
