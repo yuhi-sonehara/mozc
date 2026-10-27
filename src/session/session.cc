@@ -1591,16 +1591,6 @@ bool Session::InsertCharacter(commands::Command* command) {
   }
 
   SetSessionState(ImeContext::COMPOSITION, context_.get());
-  // 診断（2026-10-27 一時）: 打鍵ごとの組成とモードをフックログに残す。
-  // 「goal が」のあとに英単語を打つと表示が崩れる件の切り分け用。
-  composer::jev::DebugLog(
-      "ins: mode=" +
-      std::to_string(static_cast<int>(context_->composer().GetInputMode())) +
-      " origin=" +
-      std::to_string(static_cast<int>(composer::jev::GetModeOrigin())) +
-      " len=" + std::to_string(static_cast<int>(context_->composer().GetLength())) +
-      " raw=\"" + context_->composer().GetRawString() + "\" preedit=\"" +
-      context_->composer().GetStringForPreedit() + "\"\n");
   // Fork: 判定由来の組成では、打鍵のたびに下書き（ライブ変換）を更新して表示する。
   // 下書きがあるときは候補ウィンドウを出さない（Suggest は呼ばない）。
   UpdateDraftConversion();
@@ -3010,6 +3000,11 @@ void Session::Output(commands::Command* command) {
   OutputMode(command);
   context_->mutable_converter()->PopOutput(context_->composer(),
                                            command->mutable_output());
+  // Fork: 候補ウィンドウは変換修正モード（CONVERSION）でのみ出す。入力中
+  // （COMPOSITION）に出る予測候補は邪魔なので落とす（2026-10-28 ご主人様の指摘）。
+  if (context_->state() == ImeContext::COMPOSITION) {
+    command->mutable_output()->clear_candidate_window();
+  }
   // Fork: 日英判定による自動切替（と確定時の自動復帰）では、クライアントの
   // モード表示を出さない。手動の Ctrl+Space などは従来どおり表示する。
   if (composer::jev::GetModeOrigin() ==
