@@ -1499,17 +1499,22 @@ bool Session::InsertCharacter(commands::Command* command) {
   }
 
   commands::KeyEvent key = command->input().key();
-  if (server_mode_locked_) {
-    // Fork: 自動復帰の直後は、クライアントがまだ古いモードを持っている。
-    // サーバー側のモードと異なるモードが載っているキーは、そのモードを無視して
-    // サーバーを優先する。クライアントが追いついたらロックを解除する。
+  // Fork: 自動復帰の直後は、クライアントがまだ古いモード（ひらがな）を持っている。
+  // サーバー側のモードと異なるモードが載っているキーは、そのモードを無視して
+  // サーバーを優先する。クライアントが追いついたらロックを解除する。
+  // 確定（should_commit）の後にモードが変わる場合があるので、挿入の直前にも呼ぶ。
+  auto strip_stale_mode = [&]() {
+    if (!server_mode_locked_) {
+      return;
+    }
     if (key.has_mode() &&
         key.mode() != ToCompositionMode(context_->composer().GetInputMode())) {
       key.clear_mode();
     } else {
       server_mode_locked_ = false;
     }
-  }
+  };
+  strip_stale_mode();
 
   if (key.input_style() == commands::KeyEvent::DIRECT_INPUT &&
       context_->state() == ImeContext::PRECOMPOSITION) {
@@ -1569,6 +1574,9 @@ bool Session::InsertCharacter(commands::Command* command) {
       CommitCompositionDirectly(command);
       return true;
     }
+    // Fork: 上の Commit で自動復帰（半角英数へ）した直後は、このキーにまだ
+    // クライアントの古いモード（ひらがな）が載っている。無視してサーバーを優先する。
+    strip_stale_mode();
   }
 
   context_->mutable_composer()->InsertCharacterKeyEvent(key);
