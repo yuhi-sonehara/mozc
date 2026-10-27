@@ -741,6 +741,9 @@ bool Session::SendKeyCompositionState(commands::Command* command) {
     case keymap::CompositionState::CONVERT_OR_COMMIT:
       return ConvertOrCommit(command);
 
+    case keymap::CompositionState::FORCE_KANA_AND_CONVERT:
+      return ForceKanaAndConvert(command);
+
     case keymap::CompositionState::SPACE_OR_CONVERT:
       return SpaceOrConvert(command);
 
@@ -2454,6 +2457,29 @@ bool Session::ConvertOrCommit(commands::Command* command) {
   }
   // ユーザーが自分で切り替えた場合や、判定を経ていない組成は素の Mozc と同じく確定。
   return Commit(command);
+}
+
+// Fork: 半角英数の組成を、生ローマ字からかなへ組み直してから変換する。判定が
+// 日本語を英語と誤ったときの救済用（2026-10-28 ご主人様の指示）。
+bool Session::ForceKanaAndConvert(commands::Command* command) {
+  if (context_->state() != ImeContext::COMPOSITION) {
+    return DoNothing(command);
+  }
+  composer::Composer* composer = context_->mutable_composer();
+  const std::string raw = composer->GetRawString();
+  if (raw.empty()) {
+    return DoNothing(command);
+  }
+  command->mutable_output()->set_consumed(true);
+  composer->SetInputMode(transliteration::HIRAGANA);
+  composer->SetNewInput();
+  composer->DeleteRange(0, composer->GetLength());
+  for (std::string::size_type i = 0; i < raw.size(); ++i) {
+    composer->InsertCharacter(raw.substr(i, 1));
+  }
+  composer::jev::ClearModeOrigin();
+  SetSessionState(ImeContext::COMPOSITION, context_.get());
+  return Convert(command);
 }
 
 bool Session::SpaceOrConvert(commands::Command* command) {

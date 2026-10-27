@@ -2,6 +2,7 @@ status	key	command
 Composition	ASCII	InsertCharacter
 Composition	Backspace	Backspace
 Composition	Ctrl a	MoveCursorToBeginning
+Composition	Ctrl b	ForceKanaAndConvert
 Composition	Ctrl Backspace	Backspace
 Composition	Ctrl d	MoveCursorRight
 Composition	Ctrl Down	MoveCursorToEnd

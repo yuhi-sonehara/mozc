@@ -130,6 +130,9 @@ struct CompositionState {
     // Fork: Enter を「判定由来の組成なら文全体の変換、それ以外は確定」に使う。
     // 半角英数から日英判定でひらがなへ移った組成だけ Convert へ回す。
     CONVERT_OR_COMMIT,
+    // Fork: 半角英数の組成を生ローマ字からかなへ組み直してから変換する。
+    // 判定が日本語を英語と誤ったときの救済に使う（2026-10-28）。
+    FORCE_KANA_AND_CONVERT,
     CONVERT_WITHOUT_HISTORY,  // Move to Conversion status.
     PREDICT_AND_CONVERT,
     // Switching to ConversionState
