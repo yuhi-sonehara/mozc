@@ -47,6 +47,7 @@
 #include "base/strings/unicode.h"
 #include "base/vlog.h"
 #include "composer/composer.h"
+#include "composer/jev_judge.h"
 #include "composer/key_parser.h"
 #include "composer/table.h"
 #include "config/config_handler.h"
@@ -10495,6 +10496,44 @@ TEST_F(SessionTest, MultiSegmentSelectionCancel) {
   EXPECT_EQ(command.output().preedit().segment_size(), 1);
   EXPECT_EQ(command.output().preedit().segment(0).value(),
             "わたしのなまえはなかのです");
+}
+
+// Fork: 判定由来の組成（日英判定でひらがなへ移った状態）では、Space は変換ではなく
+// 空白の挿入になる（SpaceOrConvert）。
+TEST_F(SessionTest, ForkSpaceOrConvertWithJudgeOrigin) {
+  MockEngine engine;
+  std::shared_ptr<MockConverter> converter = CreateEngineConverterMock(&engine);
+
+  Session session(engine);
+  InitSessionToPrecomposition(&session);
+  commands::Command command;
+
+  InsertCharacterChars("aiu", &session, &command);
+  ASSERT_EQ(ImeContext::COMPOSITION, session.context().state());
+  const size_t length_before = session.context().composer().GetLength();
+
+  composer::jev::SetModeOrigin(composer::jev::ModeOrigin::kAutoSwitchedByJudge);
+  EXPECT_TRUE(SendSpecialKey(commands::KeyEvent::SPACE, &session, &command));
+  EXPECT_EQ(ImeContext::COMPOSITION, session.context().state());
+  EXPECT_GT(session.context().composer().GetLength(), length_before);
+  composer::jev::ClearModeOrigin();
+}
+
+// Fork: 判定を経ていない組成では、Enter は従来どおり確定になる。
+TEST_F(SessionTest, ForkConvertOrCommitWithoutJudgeOrigin) {
+  MockEngine engine;
+  std::shared_ptr<MockConverter> converter = CreateEngineConverterMock(&engine);
+
+  Session session(engine);
+  InitSessionToPrecomposition(&session);
+  commands::Command command;
+
+  InsertCharacterChars("aiu", &session, &command);
+  ASSERT_EQ(ImeContext::COMPOSITION, session.context().state());
+
+  composer::jev::ClearModeOrigin();
+  EXPECT_TRUE(SendSpecialKey(commands::KeyEvent::ENTER, &session, &command));
+  EXPECT_EQ(ImeContext::PRECOMPOSITION, session.context().state());
 }
 
 }  // namespace session
