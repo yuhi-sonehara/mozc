@@ -561,6 +561,7 @@ bool MaybeConvertToKana(Composer *composer) {
   //   に統一する（部分組み直しは行わない）。
   // ⚠ 呼び出し側は in_hook = true のまま本ラムダを呼ぶこと（再入防止）。
   auto rebuild = [&](const std::vector<std::pair<bool, std::string>> &segments) {
+    bool has_english_segment = false;
     composer->SetInputMode(transliteration::HIRAGANA);
     composer->SetNewInput();
     composer->DeleteRange(0, composer->GetLength());
@@ -568,6 +569,7 @@ bool MaybeConvertToKana(Composer *composer) {
       if (seg.second.empty()) {
         continue;
       }
+      has_english_segment = has_english_segment || seg.first;
       composer->SetInputMode(seg.first ? transliteration::HALF_ASCII
                                        : transliteration::HIRAGANA);
       composer->SetNewInput();
@@ -584,7 +586,11 @@ bool MaybeConvertToKana(Composer *composer) {
     // モードは「ひらがな」で終える（英日混在のあとも続けて日本語を打てるように）。
     // SetInputMode は以後に作るチャンクの字種を決めるだけで、組んだチャンクは
     // そのまま残る（Composition::SetInputMode は input_t12r_ のみ更新）。
-    composer->SetInputMode(transliteration::HIRAGANA);
+    // 2026-10-27: ただし英語セグメントを含む混在組成では半角英数のまま終える。
+    // ひらがなで終えると「goal が」のあとに blocked と打ったとき、b 以降が
+    // ローマ字としてかな化してしまう（実測: ｂぉｃけｄ）。
+    composer->SetInputMode(has_english_segment ? transliteration::HALF_ASCII
+                                              : transliteration::HIRAGANA);
   };
 
   // 判定対象は「末尾セグメント」だけ。半角英数で「web 」まで打った後の「web wo」は
