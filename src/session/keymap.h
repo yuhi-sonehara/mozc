@@ -133,6 +133,8 @@ struct CompositionState {
     // Fork: 半角英数の組成を生ローマ字からかなへ組み直してから変換する。
     // 判定が日本語を英語と誤ったときの救済に使う（2026-10-28）。
     FORCE_KANA_AND_CONVERT,
+    // Fork: 判定でかなへ切り替えた組成を、生ローマ字（半角英数）へ戻す。
+    FORCE_ASCII,
     CONVERT_WITHOUT_HISTORY,  // Move to Conversion status.
     PREDICT_AND_CONVERT,
     // Switching to ConversionState

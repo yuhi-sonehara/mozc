@@ -6,7 +6,7 @@ Composition	Ctrl b	ForceKanaAndConvert
 Composition	Ctrl Backspace	Backspace
 Composition	Ctrl d	MoveCursorRight
 Composition	Ctrl Down	MoveCursorToEnd
-Composition	Ctrl e	MoveCursorToBeginning
+Composition	Ctrl e	ForceAscii
 Composition	Ctrl Enter	Commit
 Composition	Ctrl f	MoveCursorToEnd
 Composition	Ctrl g	Delete

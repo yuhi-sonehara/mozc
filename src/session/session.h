@@ -150,6 +150,8 @@ class Session {
   bool SpaceOrConvert(mozc::commands::Command* command);
   // Fork: 半角英数の組成を生ローマ字からかなへ組み直してから変換する。
   bool ForceKanaAndConvert(mozc::commands::Command* command);
+  // Fork: かなへ切り替えた組成を生ローマ字（半角英数）へ戻す。
+  bool ForceAscii(mozc::commands::Command* command);
   // Starts conversion not using user history.  This is used for debugging.
   bool ConvertWithoutHistory(mozc::commands::Command* command);
   bool ConvertNext(mozc::commands::Command* command);

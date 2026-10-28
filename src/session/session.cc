@@ -745,6 +745,9 @@ bool Session::SendKeyCompositionState(commands::Command* command) {
     case keymap::CompositionState::FORCE_KANA_AND_CONVERT:
       return ForceKanaAndConvert(command);
 
+    case keymap::CompositionState::FORCE_ASCII:
+      return ForceAscii(command);
+
     case keymap::CompositionState::SPACE_OR_CONVERT:
       return SpaceOrConvert(command);
 
@@ -2464,6 +2467,28 @@ bool Session::ConvertOrCommit(commands::Command* command) {
   return Commit(command);
 }
 
+// Fork: 判定でかなへ切り替えた組成を、生ローマ字（半角英数）へ戻す。日本語と
+// 誤判定された英語を、打ち直さずに英字へ戻すためのもの（2026-10-28 ご主人様の指示）。
+bool Session::ForceAscii(commands::Command* command) {
+  if (context_->state() != ImeContext::COMPOSITION) {
+    return DoNothing(command);
+  }
+  composer::Composer* composer = context_->mutable_composer();
+  const std::string raw = composer->GetRawString();
+  if (raw.empty()) {
+    return DoNothing(command);
+  }
+  command->mutable_output()->set_consumed(true);
+  composer->SetInputMode(transliteration::HALF_ASCII);
+  composer->SetNewInput();
+  composer->DeleteRange(0, composer->GetLength());
+  composer->InsertCharacterPreedit(raw);
+  composer::jev::ClearModeOrigin();
+  SetSessionState(ImeContext::COMPOSITION, context_.get());
+  Output(command);
+  return true;
+}
+
 // Fork: 半角英数の組成を、生ローマ字からかなへ組み直してから変換する。判定が
 // 日本語を英語と誤ったときの救済用（2026-10-28 ご主人様の指示）。
 bool Session::ForceKanaAndConvert(commands::Command* command) {
@@ -3062,10 +3087,13 @@ void Session::Output(commands::Command* command) {
   OutputMode(command);
   context_->mutable_converter()->PopOutput(context_->composer(),
                                            command->mutable_output());
-  // Fork: ハイブリッド UI が有効なときだけ、半角英数の組成中の予測候補を落とす
-  // （候補ウィンドウは変換修正モードでだけ出す）。素の Mozc の直接入力は不変。
+  // Fork: ハイブリッド UI が有効なときだけ、組成中の予測候補を落とす（候補
+  // ウィンドウは変換修正モードでだけ出す）。半角英数の組成に加え、判定でかなへ
+  // 切り替えた組成（ひらがなモード）も対象にする。素の Mozc の組成は不変。
   if (HybridUiEnabled() && context_->state() == ImeContext::COMPOSITION &&
-      context_->composer().GetInputMode() == transliteration::HALF_ASCII) {
+      (context_->composer().GetInputMode() == transliteration::HALF_ASCII ||
+       composer::jev::GetModeOrigin() ==
+           composer::jev::ModeOrigin::kAutoSwitchedByJudge)) {
     command->mutable_output()->clear_candidate_window();
   }
   // Fork: 日英判定による自動切替（と確定時の自動復帰）では、クライアントの
