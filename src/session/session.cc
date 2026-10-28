@@ -36,6 +36,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <cstdio>
 #include <cstdlib>
 #include <utility>
 #include <vector>
@@ -2449,8 +2450,12 @@ bool Session::ConvertOrCommit(commands::Command* command) {
       composer::jev::ModeOrigin::kAutoSwitchedByJudge) {
     return Convert(command);
   }
-  // 2026-10-28: 半角英数の組成も変換モードを挟みたいところだが、素の Mozc の
-  // 直接入力（"www." など）と区別できないため、いったん従来どおり確定に戻す。
+  // 2026-10-28: ハイブリッド UI が有効なときは、半角英数の組成でも変換モードを
+  // 挟む（誤判定で日本語が ASCII のまま確定するのを防ぐ）。
+  if (HybridUiEnabled() && !context_->composer().Empty() &&
+      context_->composer().GetInputMode() == transliteration::HALF_ASCII) {
+    return Convert(command);
+  }
   // ユーザーが自分で切り替えた場合や、判定を経ていない組成は素の Mozc と同じく確定。
   return Commit(command);
 }
@@ -3011,6 +3016,31 @@ void Session::TryDraftFromCandidates(const commands::Output &output) {
   }
 }
 
+// Fork: ハイブリッド UI の追加挙動（半角英数の組成中に予測候補を出さない、
+// 半角英数の組成で Enter を変換にする）を有効にするか。素の Mozc の半角英数
+// 組成（www. などの直接入力）と区別するため、明示的に有効化したときだけ働かせる。
+// テスト環境では環境変数もマーカーファイルも無いので、上流の挙動のままになる。
+static bool HybridUiEnabled() {
+  static const bool enabled = []() {
+    const char* value = std::getenv("MOZC_JEV_HYBRID_UI");
+    if (value != nullptr && std::string(value) != "0") {
+      return true;
+    }
+    const char* local = std::getenv("LOCALAPPDATA");
+    if (local == nullptr) {
+      return false;
+    }
+    const std::string path = std::string(local) + "\\Mozc\\jev_hybrid_ui";
+    FILE* fp = fopen(path.c_str(), "rb");
+    if (fp == nullptr) {
+      return false;
+    }
+    fclose(fp);
+    return true;
+  }();
+  return enabled;
+}
+
 // Fork: 下書き変換の kill switch。環境変数 MOZC_JEV_DRAFT=0 で無効化できる
 // （再ビルド・再インストールなしで切り戻せるようにするため）。
 bool Session::DraftConversionEnabled() const {
@@ -3028,6 +3058,12 @@ void Session::Output(commands::Command* command) {
   OutputMode(command);
   context_->mutable_converter()->PopOutput(context_->composer(),
                                            command->mutable_output());
+  // Fork: ハイブリッド UI が有効なときだけ、半角英数の組成中の予測候補を落とす
+  // （候補ウィンドウは変換修正モードでだけ出す）。素の Mozc の直接入力は不変。
+  if (HybridUiEnabled() && context_->state() == ImeContext::COMPOSITION &&
+      context_->composer().GetInputMode() == transliteration::HALF_ASCII) {
+    command->mutable_output()->clear_candidate_window();
+  }
   // Fork: 日英判定による自動切替（と確定時の自動復帰）では、クライアントの
   // モード表示を出さない。手動の Ctrl+Space などは従来どおり表示する。
   if (composer::jev::GetModeOrigin() ==
