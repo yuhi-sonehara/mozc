@@ -30,8 +30,10 @@
 #include "win32/tip/tip_input_mode_manager.h"
 
 #include <inputscope.h>
+#include <windows.h>
 
 #include <algorithm>
+#include <cstdio>
 #include <utility>
 #include <vector>
 
@@ -114,6 +116,26 @@ TipInputModeManagerImpl::StatePair TipInputModeManagerImpl::GetOverriddenState(
 }
 
 // For Mode Indicator.
+void TipInputModeManager::JevLog(const char *line) const {
+  wchar_t path[MAX_PATH] = {};
+  const DWORD n = ::GetTempPathW(MAX_PATH, path);
+  if (n == 0 || n >= MAX_PATH - 32) return;
+  DWORD len = 0;
+  while (line[len]) ++len;
+  const wchar_t *suffix = L"jev_tip_mode.log";
+  size_t i = 0;
+  while (path[i]) ++i;
+  for (size_t j = 0; suffix[j] && i < MAX_PATH - 1; ++j) path[i++] = suffix[j];
+  path[i] = 0;
+  HANDLE h = ::CreateFileW(path, FILE_APPEND_DATA,
+                           FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+                           OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+  if (h == INVALID_HANDLE_VALUE) return;
+  DWORD written = 0;
+  ::WriteFile(h, line, len, &written, nullptr);
+  ::CloseHandle(h);
+}
+
 TipInputModeManager::Action TipInputModeManager::OnDissociateContext() {
   const IndicatorVisibilityTracker::Action action =
       indicator_visibility_tracker_.OnDissociateContext();
@@ -256,6 +278,14 @@ TipInputModeManager::Action TipInputModeManager::OnChangeConversionMode(
   }
 
   if (prev_effective.conversion_mode != mozc_state_.conversion_mode) {
+    {
+      char buf[160];
+      snprintf(buf, sizeof(buf), "cm prev=%d new=%d suppress=%d\n",
+               static_cast<int>(prev_effective.conversion_mode),
+               static_cast<int>(mozc_state_.conversion_mode),
+               suppress_next_indicator_ ? 1 : 0);
+      JevLog(buf);
+    }
     if (suppress_next_indicator_) {
       // Fork: 日英判定による自動切替ではモード表示を出さない（状態だけ更新する）。
       suppress_next_indicator_ = false;

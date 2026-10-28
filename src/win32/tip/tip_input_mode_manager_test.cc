@@ -316,6 +316,29 @@ TEST(TipInputModeManagerTest, InputScopeOnSetFocus_GitHubIssue826) {
             commands::HIRAGANA);
 }
 
+// Fork: 自動切替（判定由来）のときだけインジケーターを抑え、手動切替では出す。
+// 抑制フラグは出力ごとに上書きされるので、古い true が手動切替へ漏れない。
+TEST(TipInputModeManagerTest, ForkSuppressIndicatorOnlyForAutomaticSwitch) {
+  TipInputModeManager input_mode_manager(GetThreadLocalMode());
+  input_mode_manager.OnInitialize(true, kNativeHiragana);
+
+  // 自動切替: 状態だけ更新し、インジケーターは出さない。
+  input_mode_manager.SetSuppressNextIndicator(true);
+  EXPECT_EQ(input_mode_manager.OnChangeConversionMode(kNativeHalfAlpha),
+            TipInputModeManager::kDoNothing);
+  EXPECT_FALSE(input_mode_manager.IsIndicatorVisible());
+  EXPECT_EQ(input_mode_manager.GetEffectiveConversionMode(),
+            commands::HALF_ASCII);
+
+  // 手動切替: 出力が false で上書きするので、従来どおり表示する。
+  input_mode_manager.SetSuppressNextIndicator(false);
+  EXPECT_EQ(input_mode_manager.OnChangeConversionMode(kNativeHiragana),
+            TipInputModeManager::kUpdateUI);
+  EXPECT_TRUE(input_mode_manager.IsIndicatorVisible());
+  EXPECT_EQ(input_mode_manager.GetEffectiveConversionMode(),
+            commands::HIRAGANA);
+}
+
 }  // namespace
 }  // namespace tsf
 }  // namespace win32

@@ -36,6 +36,7 @@
 #include <windows.h>
 
 #include <cstdint>
+#include <cstdio>
 #include <string>
 #include <utility>
 #include <vector>
@@ -427,6 +428,11 @@ HRESULT UpdatePrivateContext(TipTextService* text_service, ITfContext* context,
   const Status& status = output.status();
   TipInputModeManager* input_mode_manager =
       text_service->GetThreadContext()->GetInputModeManager();
+  // Fork: 抑制の意図は「その出力」に対するもの。通知の有無にかかわらず毎回
+  // 更新する。通知が起きなかった出力で true のまま残ると、次の手動切替
+  // （Ctrl+Space）の表示まで飲み込んでしまうため（2026-10-28 の不具合）。
+  input_mode_manager->SetSuppressNextIndicator(
+      output.suppress_mode_indicator());
   const TipInputModeManager::NotifyActionSet action_set =
       input_mode_manager->OnReceiveCommand(
           status.activated(), status.comeback_mode(), status.mode());
@@ -439,9 +445,14 @@ HRESULT UpdatePrivateContext(TipTextService* text_service, ITfContext* context,
 
   if ((action_set & TipInputModeManager::kNotifySystemConversionMode) ==
       TipInputModeManager::kNotifySystemConversionMode) {
-    // Fork: 日英判定による自動切替ではモード表示（インジケーター）を出さない。
-    input_mode_manager->SetSuppressNextIndicator(
-        output.suppress_mode_indicator());
+    {
+      char buf[160];
+      snprintf(buf, sizeof(buf), "out mode=%d comeback=%d suppress=%d\n",
+               static_cast<int>(status.mode()),
+               static_cast<int>(status.comeback_mode()),
+               output.suppress_mode_indicator() ? 1 : 0);
+      input_mode_manager->JevLog(buf);
+    }
     const CompositionMode mozc_mode =
         input_mode_manager->GetEffectiveConversionMode();
     uint32_t native_mode = 0;

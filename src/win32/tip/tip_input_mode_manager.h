@@ -108,9 +108,12 @@ class TipInputModeManager : public TipInputModeManagerImpl {
                                    commands::CompositionMode mozc_logical_mode,
                                    commands::CompositionMode mozc_visible_mode);
   // Fork: 次のモード変更でインジケーターを出さない（自動切替用）。
+  // 出力ごとに呼び、その出力の意図で上書きする（古い true を持ち越さない）。
   void SetSuppressNextIndicator(bool suppress) {
     suppress_next_indicator_ = suppress;
   }
+  // Fork: 診断用ログ（%TEMP%\jev_tip_mode.log）。モード切替時だけ呼ぶ。
+  void JevLog(const char *line) const;
   Action OnSetFocus(bool system_open_close_mode, DWORD system_conversion_mode,
                     absl::Span<const InputScope> input_scopes);
   Action OnChangeOpenClose(bool new_open_close_mode);
