@@ -317,23 +317,23 @@ TEST(TipInputModeManagerTest, InputScopeOnSetFocus_GitHubIssue826) {
 }
 
 // Fork: 自動切替（判定由来）のときだけインジケーターを抑え、手動切替では出す。
-// 抑制フラグは出力ごとに上書きされるので、古い true が手動切替へ漏れない。
+// 抑制は「可視フラグを立てるか」の判断に直接効かせる（2026-10-29 の不具合）。
 TEST(TipInputModeManagerTest, ForkSuppressIndicatorOnlyForAutomaticSwitch) {
   TipInputModeManager input_mode_manager(GetThreadLocalMode());
   input_mode_manager.OnInitialize(true, kNativeHiragana);
 
-  // 自動切替: 状態だけ更新し、インジケーターは出さない。
-  input_mode_manager.SetSuppressNextIndicator(true);
-  EXPECT_EQ(input_mode_manager.OnChangeConversionMode(kNativeHalfAlpha),
-            TipInputModeManager::kDoNothing);
+  // 自動切替: 通知は出すが、インジケーターの可視フラグは立てない。
+  auto actions = input_mode_manager.OnReceiveCommand(
+      true, commands::HALF_ASCII, commands::HALF_ASCII, /*suppress=*/true);
+  EXPECT_TRUE(actions & TipInputModeManager::kNotifySystemConversionMode);
   EXPECT_FALSE(input_mode_manager.IsIndicatorVisible());
   EXPECT_EQ(input_mode_manager.GetEffectiveConversionMode(),
             commands::HALF_ASCII);
 
-  // 手動切替: 出力が false で上書きするので、従来どおり表示する。
-  input_mode_manager.SetSuppressNextIndicator(false);
-  EXPECT_EQ(input_mode_manager.OnChangeConversionMode(kNativeHiragana),
-            TipInputModeManager::kUpdateUI);
+  // 手動切替: suppress=false の出力は従来どおり表示する。
+  actions = input_mode_manager.OnReceiveCommand(
+      true, commands::HIRAGANA, commands::HIRAGANA, /*suppress=*/false);
+  EXPECT_TRUE(actions & TipInputModeManager::kNotifySystemConversionMode);
   EXPECT_TRUE(input_mode_manager.IsIndicatorVisible());
   EXPECT_EQ(input_mode_manager.GetEffectiveConversionMode(),
             commands::HIRAGANA);

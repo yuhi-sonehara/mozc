@@ -104,14 +104,13 @@ class TipInputModeManager : public TipInputModeManagerImpl {
   bool IsIndicatorVisible() const;
 
   void OnInitialize(bool system_open_close_mode, DWORD system_conversion_mode);
+  // Fork: suppress_indicator はサーバーの Output.suppress_mode_indicator。
+  // true の出力（日英判定による自動切替）では、モード表示の可視フラグを
+  // 立てない。手動切替の出力は false なので従来どおり表示する。
   NotifyActionSet OnReceiveCommand(bool mozc_open_close_mode,
                                    commands::CompositionMode mozc_logical_mode,
-                                   commands::CompositionMode mozc_visible_mode);
-  // Fork: 次のモード変更でインジケーターを出さない（自動切替用）。
-  // 出力ごとに呼び、その出力の意図で上書きする（古い true を持ち越さない）。
-  void SetSuppressNextIndicator(bool suppress) {
-    suppress_next_indicator_ = suppress;
-  }
+                                   commands::CompositionMode mozc_visible_mode,
+                                   bool suppress_indicator = false);
   // Fork: 診断用ログ（%TEMP%\jev_tip_mode.log）。モード切替時だけ呼ぶ。
   void JevLog(const char *line) const;
   Action OnSetFocus(bool system_open_close_mode, DWORD system_conversion_mode,
@@ -134,8 +133,6 @@ class TipInputModeManager : public TipInputModeManagerImpl {
   StatePair mozc_state_;
   StatePair tsf_state_;
   IndicatorVisibilityTracker indicator_visibility_tracker_;
-  // Fork: 自動切替の直後だけインジケーターを抑える。
-  bool suppress_next_indicator_ = false;
   std::vector<InputScope> input_scope_;
 };
 

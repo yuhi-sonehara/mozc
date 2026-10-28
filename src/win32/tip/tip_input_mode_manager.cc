@@ -185,7 +185,7 @@ TipInputModeManager::Action TipInputModeManager::OnMoveFocusedWindow() {
 
 TipInputModeManager::NotifyActionSet TipInputModeManager::OnReceiveCommand(
     bool mozc_open_close_mode, commands::CompositionMode mozc_logical_mode,
-    commands::CompositionMode mozc_visible_mode) {
+    commands::CompositionMode mozc_visible_mode, bool suppress_indicator) {
   const StatePair prev_tsf_state = tsf_state_;
 
   tsf_state_.open_close = mozc_open_close_mode;
@@ -201,7 +201,27 @@ TipInputModeManager::NotifyActionSet TipInputModeManager::OnReceiveCommand(
     action_set |= kNotifySystemConversionMode;
   }
   if (action_set != kNotifyNothing) {
-    indicator_visibility_tracker_.OnChangeInputMode();
+    // Fork: 日英判定による自動切替（サーバーが suppress を立てた出力）では、
+    // モード表示の可視フラグを立てない。ここで立てなければ、後続の UI 更新で
+    // インジケーターが出ることはない。手動切替の出力は suppress=false なので
+    // 従来どおり表示する。
+    const bool suppressed =
+        suppress_indicator &&
+        ((action_set & kNotifySystemConversionMode) ==
+         kNotifySystemConversionMode);
+    if (!suppressed) {
+      indicator_visibility_tracker_.OnChangeInputMode();
+    }
+    {
+      char buf[192];
+      snprintf(buf, sizeof(buf),
+               "recv actions=%d logical=%d visible=%d suppress=%d skip=%d vis=%d\n",
+               static_cast<int>(action_set),
+               static_cast<int>(mozc_logical_mode),
+               static_cast<int>(mozc_visible_mode), suppress_indicator ? 1 : 0,
+               suppressed ? 1 : 0, IsIndicatorVisible() ? 1 : 0);
+      JevLog(buf);
+    }
   }
   return action_set;
 }
@@ -278,19 +298,6 @@ TipInputModeManager::Action TipInputModeManager::OnChangeConversionMode(
   }
 
   if (prev_effective.conversion_mode != mozc_state_.conversion_mode) {
-    {
-      char buf[160];
-      snprintf(buf, sizeof(buf), "cm prev=%d new=%d suppress=%d\n",
-               static_cast<int>(prev_effective.conversion_mode),
-               static_cast<int>(mozc_state_.conversion_mode),
-               suppress_next_indicator_ ? 1 : 0);
-      JevLog(buf);
-    }
-    if (suppress_next_indicator_) {
-      // Fork: 日英判定による自動切替ではモード表示を出さない（状態だけ更新する）。
-      suppress_next_indicator_ = false;
-      return kDoNothing;
-    }
     indicator_visibility_tracker_.OnChangeInputMode();
     return kUpdateUI;
   }

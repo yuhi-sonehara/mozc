@@ -36,7 +36,6 @@
 #include <windows.h>
 
 #include <cstdint>
-#include <cstdio>
 #include <string>
 #include <utility>
 #include <vector>
@@ -428,14 +427,12 @@ HRESULT UpdatePrivateContext(TipTextService* text_service, ITfContext* context,
   const Status& status = output.status();
   TipInputModeManager* input_mode_manager =
       text_service->GetThreadContext()->GetInputModeManager();
-  // Fork: 抑制の意図は「その出力」に対するもの。通知の有無にかかわらず毎回
-  // 更新する。通知が起きなかった出力で true のまま残ると、次の手動切替
-  // （Ctrl+Space）の表示まで飲み込んでしまうため（2026-10-28 の不具合）。
-  input_mode_manager->SetSuppressNextIndicator(
-      output.suppress_mode_indicator());
+  // Fork: サーバーの抑制意図を、可視フラグを立てる判断にそのまま渡す。
+  // 自動切替の出力でだけ true になるので、手動切替は従来どおり表示される。
   const TipInputModeManager::NotifyActionSet action_set =
       input_mode_manager->OnReceiveCommand(
-          status.activated(), status.comeback_mode(), status.mode());
+          status.activated(), status.comeback_mode(), status.mode(),
+          output.suppress_mode_indicator());
   if ((action_set & TipInputModeManager::kNotifySystemOpenClose) ==
       TipInputModeManager::kNotifySystemOpenClose) {
     TipStatus::SetIMEOpen(text_service->GetThreadManager(),
@@ -445,14 +442,6 @@ HRESULT UpdatePrivateContext(TipTextService* text_service, ITfContext* context,
 
   if ((action_set & TipInputModeManager::kNotifySystemConversionMode) ==
       TipInputModeManager::kNotifySystemConversionMode) {
-    {
-      char buf[160];
-      snprintf(buf, sizeof(buf), "out mode=%d comeback=%d suppress=%d\n",
-               static_cast<int>(status.mode()),
-               static_cast<int>(status.comeback_mode()),
-               output.suppress_mode_indicator() ? 1 : 0);
-      input_mode_manager->JevLog(buf);
-    }
     const CompositionMode mozc_mode =
         input_mode_manager->GetEffectiveConversionMode();
     uint32_t native_mode = 0;
