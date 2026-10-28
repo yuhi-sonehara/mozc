@@ -2443,6 +2443,10 @@ bool Session::DeleteCandidateFromHistory(commands::Command* command) {
   return ConvertCancel(command);
 }
 
+// Fork: HybridUiEnabled の定義はファイル後半（Output の直前）に置いているため、
+// ここで前方宣言する。
+static bool HybridUiEnabled();
+
 bool Session::ConvertOrCommit(commands::Command* command) {
   // Fork: 日英判定フックがひらがなへ切り替えた組成では、Enter を「文全体の変換」に
   // 使う（Space は素のまま空白挿入）。
