@@ -562,6 +562,12 @@ bool Session::HandleCursorMoveMode(commands::Command* command, bool* result) {
     cursor_move_mode_ = false;
     return false;
   }
+  // MS-IME キーマップのときだけ有効にする（KOTOERI では Ctrl+j/k/l/; が
+  // DisplayAs 系に割り当てられており、既存のシナリオテストもその前提）。
+  if (context_->GetConfig().session_keymap() != config::Config::MSIME) {
+    cursor_move_mode_ = false;
+    return false;
+  }
   const commands::KeyEvent &key = command->input().key();
   const uint32_t modifiers = KeyEventUtil::GetModifiers(key);
   const bool has_ctrl = KeyEventUtil::HasCtrl(modifiers);
