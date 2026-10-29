@@ -2609,13 +2609,10 @@ bool Session::ConvertOrCommit(commands::Command* command) {
       composer::jev::ModeOrigin::kAutoSwitchedByJudge) {
     return Convert(command);
   }
-  // 2026-10-28: ハイブリッド UI が有効なときは、半角英数の組成でも変換モードを
-  // 挟む（誤判定で日本語が ASCII のまま確定するのを防ぐ）。
-  if (HybridUiEnabled() && !context_->composer().Empty() &&
-      context_->composer().GetInputMode() == transliteration::HALF_ASCII) {
-    return Convert(command);
-  }
-  // ユーザーが自分で切り替えた場合や、判定を経ていない組成は素の Mozc と同じく確定。
+  // Fork 2026-10-29: 判定を経ていない半角英数の組成は、素の Mozc と同じく確定する。
+  // 以前はここで Convert していたが、英語（amazon / prime 等）を打って Enter を
+  // 押すと全角英字（ａｍａｚｏｎ）に変換されてしまうため戻した。判定で英語と
+  // 誤られた日本語は Ctrl+b（ForceKanaAndConvert）で救済する。
   return Commit(command);
 }
 
