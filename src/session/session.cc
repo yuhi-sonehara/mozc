@@ -520,6 +520,11 @@ bool Session::SendKey(commands::Command* command) {
   HandleIndirectImeOnOff(command);
 
   bool result = false;
+  // Fork: 組成中のカーソル移動モードを先に処理する（キーマップより優先）。
+  if (HandleCursorMoveMode(command, &result)) {
+    MaybeSetUndoStatus(command);
+    return result;
+  }
   switch (context_->state()) {
     case ImeContext::DIRECT:
       result = SendKeyDirectInputState(command);
@@ -546,6 +551,108 @@ bool Session::SendKey(commands::Command* command) {
   return result;
 }
 
+// Fork: 組成中のカーソル移動モード（2026-10-29 ご主人様の指示）。
+// インサート（組成）中に Esc か Ctrl+; でモードへ入り、h/l で左右、
+// j/k で行末/行頭（組成は1行なので上下の代替）、0/^ で行頭、$ で行末、
+// i で入力へ戻る。素の h/l/j/k はこのモード中だけ解釈するので、
+// 通常の入力では文字として打てる。
+bool Session::HandleCursorMoveMode(commands::Command* command, bool* result) {
+  if (context_->state() != ImeContext::COMPOSITION) {
+    cursor_move_mode_ = false;
+    return false;
+  }
+  const commands::KeyEvent &key = command->input().key();
+  const uint32_t modifiers = composer::KeyEventUtil::GetModifiers(key);
+  const bool has_ctrl = composer::KeyEventUtil::HasCtrl(modifiers);
+  const bool has_alt = composer::KeyEventUtil::HasAlt(modifiers);
+  const uint32_t code = key.has_key_code() ? key.key_code() : 0;
+  const bool is_esc =
+      key.has_special_key() &&
+      key.special_key() == commands::KeyEvent::ESCAPE;
+  const bool is_enter =
+      key.has_special_key() &&
+      key.special_key() == commands::KeyEvent::ENTER;
+  const bool is_semicolon = (code == ';');
+
+  if (!cursor_move_mode_) {
+    if (is_esc || (has_ctrl && is_semicolon)) {
+      cursor_move_mode_ = true;
+      composer::jev::DebugLog("cursor move mode: on\n");
+      command->mutable_output()->set_consumed(true);
+      Output(command);
+      *result = true;
+      return true;
+    }
+    return false;
+  }
+
+  // モード中: Esc は従来どおり組成の取消（1回目でモードへ入るので、
+  // 取消は Esc を2回押すか Ctrl+z）。
+  if (is_esc) {
+    cursor_move_mode_ = false;
+    composer::jev::DebugLog("cursor move mode: off (cancel)\n");
+    *result = EditCancel(command);
+    return true;
+  }
+  if (has_ctrl && is_semicolon) {
+    cursor_move_mode_ = false;
+    composer::jev::DebugLog("cursor move mode: off\n");
+    command->mutable_output()->set_consumed(true);
+    Output(command);
+    *result = true;
+    return true;
+  }
+  // 他の修飾キー付きはモードを抜けて通常処理へ渡す（Ctrl+Space 等）。
+  if (has_ctrl || has_alt) {
+    cursor_move_mode_ = false;
+    return false;
+  }
+  if (is_enter) {
+    cursor_move_mode_ = false;
+    composer::jev::DebugLog("cursor move mode: off (enter)\n");
+    *result = ConvertOrCommit(command);
+    return true;
+  }
+  if (code == 'i' || code == 'I') {
+    cursor_move_mode_ = false;
+    composer::jev::DebugLog("cursor move mode: off\n");
+    command->mutable_output()->set_consumed(true);
+    Output(command);
+    *result = true;
+    return true;
+  }
+  switch (code) {
+    case 'h':
+    case 'H':
+      *result = MoveCursorLeft(command);
+      return true;
+    case 'l':
+    case 'L':
+      *result = MoveCursorRight(command);
+      return true;
+    case 'j':
+    case 'J':
+      *result = MoveCursorToEnd(command);
+      return true;
+    case 'k':
+    case 'K':
+      *result = MoveCursorToBeginning(command);
+      return true;
+    case '0':
+    case '^':
+      *result = MoveCursorToBeginning(command);
+      return true;
+    case '$':
+      *result = MoveCursorToEnd(command);
+      return true;
+    default:
+      // モード中の未割当キーは文字を挿入せずに消費する。
+      command->mutable_output()->set_consumed(true);
+      Output(command);
+      *result = true;
+      return true;
+  }
+}
 bool Session::UpdateCompositionInternal(commands::Command* command) {
   command->mutable_output()->set_consumed(true);
 

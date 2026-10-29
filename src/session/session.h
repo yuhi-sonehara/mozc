@@ -152,6 +152,8 @@ class Session {
   bool ForceKanaAndConvert(mozc::commands::Command* command);
   // Fork: かなへ切り替えた組成を生ローマ字（半角英数）へ戻す。
   bool ForceAscii(mozc::commands::Command* command);
+  // Fork: 組成中のカーソル移動モード（Vim 風）。処理したら true を返す。
+  bool HandleCursorMoveMode(mozc::commands::Command* command, bool* result);
   // Starts conversion not using user history.  This is used for debugging.
   bool ConvertWithoutHistory(mozc::commands::Command* command);
   bool ConvertNext(mozc::commands::Command* command);
@@ -292,6 +294,8 @@ class Session {
   // Fork: 自動復帰（判定由来の確定）でモードが変わるとき、1回だけモード表示を
   // 抑えるためのフラグ。
   bool suppress_mode_indicator_once_ = false;
+  // Fork: 組成中のカーソル移動モード（Esc か Ctrl+; で入る）。
+  bool cursor_move_mode_ = false;
   // Fork: 組成が終わった時点で、判定由来のモード切替を半角英数へ戻す。
   void MaybeReturnToHalfAscii();
   // Fork: 自動復帰のあと、クライアントが追いつくまでのキーに載っている
