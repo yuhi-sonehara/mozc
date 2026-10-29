@@ -1677,6 +1677,16 @@ bool Session::InsertCharacter(commands::Command* command) {
   };
   strip_stale_mode();
 
+  // 診断: 句読点のときに、モード・組成の有無・ハイブリッドの有効/無効を残す
+  // （半角のまま入る条件が「時々」で分からないため）。
+  if (key.has_key_code() && (key.key_code() == ',' || key.key_code() == '.')) {
+    composer::jev::DebugLog(
+        "punct: code=" + std::to_string(key.key_code()) +
+        " mode=" + std::to_string(context_->composer().GetInputMode()) +
+        " empty=" + (context_->composer().Empty() ? "1" : "0") +
+        " hybrid=" + (HybridUiEnabled() ? "1" : "0") + "\n");
+  }
+
   // Fork: 組成の先頭で打たれた「,」は日本語の読点として扱う（ハイブリッド有効時のみ）。
   // 確定後の自動復帰で半角英数に戻っている直後は、読点が半角のまま組成に残り、
   // 判定ゲートが弾いて以降の日本語が変換されなくなるため（2026-10-29）。
