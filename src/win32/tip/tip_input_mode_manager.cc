@@ -215,6 +215,15 @@ TipInputModeManager::NotifyActionSet TipInputModeManager::OnReceiveCommand(
     {
       char buf[192];
       snprintf(buf, sizeof(buf),
+               "recv actions=%d visible=%d supp=%d skip=%d vis=%d\n",
+               static_cast<int>(action_set),
+               static_cast<int>(mozc_visible_mode), suppress_indicator ? 1 : 0,
+               suppressed ? 1 : 0, IsIndicatorVisible() ? 1 : 0);
+      JevLog(buf);
+    }
+    {
+      char buf[192];
+      snprintf(buf, sizeof(buf),
                "recv actions=%d logical=%d visible=%d suppress=%d skip=%d vis=%d\n",
                static_cast<int>(action_set),
                static_cast<int>(mozc_logical_mode),
@@ -299,6 +308,13 @@ TipInputModeManager::Action TipInputModeManager::OnChangeConversionMode(
 
   if (prev_effective.conversion_mode != mozc_state_.conversion_mode) {
     indicator_visibility_tracker_.OnChangeInputMode();
+    {
+      char buf[160];
+      snprintf(buf, sizeof(buf), "cm prev=%d new=%d->kUpdateUI\n",
+               static_cast<int>(prev_effective.conversion_mode),
+               static_cast<int>(mozc_state_.conversion_mode));
+      JevLog(buf);
+    }
     return kUpdateUI;
   }
   return kDoNothing;

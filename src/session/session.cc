@@ -1687,15 +1687,24 @@ bool Session::InsertCharacter(commands::Command* command) {
         " hybrid=" + (HybridUiEnabled() ? "1" : "0") + "\n");
   }
 
-  // Fork: 組成の先頭で打たれた「,」は日本語の読点として扱う（ハイブリッド有効時のみ）。
-  // 確定後の自動復帰で半角英数に戻っている直後は、読点が半角のまま組成に残り、
-  // 判定ゲートが弾いて以降の日本語が変換されなくなるため（2026-10-29）。
-  if (HybridUiEnabled() && context_->composer().Empty() &&
-      context_->composer().GetInputMode() == transliteration::HALF_ASCII &&
-      !key.has_special_key() && key.has_key_code() && key.key_code() == ',' &&
+  // Fork: 日本語の文脈で打たれた「,」「.」は全角の句読点として扱う（ハイブリッド有効時のみ）。
+  // 組成が空（確定直後の自動復帰）か、組成にかなを含む（英日混在の組み直しは
+  // 半角英数モードで終わるため）ときが対象。純英語の組成は半角のまま。
+  if (HybridUiEnabled() && !key.has_special_key() && key.has_key_code() &&
+      (key.key_code() == ',' || key.key_code() == '.') &&
       !KeyEventUtil::HasCtrl(KeyEventUtil::GetModifiers(key)) &&
       !KeyEventUtil::HasAlt(KeyEventUtil::GetModifiers(key))) {
-    context_->mutable_composer()->SetInputMode(transliteration::HIRAGANA);
+    bool has_kana = false;
+    const std::string preedit = context_->composer().GetStringForPreedit();
+    for (const unsigned char c : preedit) {
+      if (c >= 0x80) {
+        has_kana = true;
+        break;
+      }
+    }
+    if (context_->composer().Empty() || has_kana) {
+      context_->mutable_composer()->SetInputMode(transliteration::HIRAGANA);
+    }
   }
 
   if (key.input_style() == commands::KeyEvent::DIRECT_INPUT &&
