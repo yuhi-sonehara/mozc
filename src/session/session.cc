@@ -580,6 +580,15 @@ bool Session::HandleCursorMoveMode(commands::Command* command, bool* result) {
       key.has_special_key() &&
       key.special_key() == commands::KeyEvent::ENTER;
   const bool is_semicolon = (code == ';');
+  // 診断: 組成中の Ctrl キーは、TIP が制御文字として送ることがある
+  // （ToUnicode の結果: Ctrl+h=0x08 / j=0x0A / k=0x0B / l=0x0C）。
+  if (has_ctrl && !has_alt) {
+    composer::jev::DebugLog(
+        "ctrl key: code=" + std::to_string(code) +
+        " special=" +
+        (key.has_special_key() ? std::to_string(key.special_key()) : "-") +
+        " mods=" + std::to_string(modifiers) + "\n");
+  }
 
   if (!cursor_move_mode_) {
     if (has_ctrl && is_semicolon) {
@@ -596,18 +605,22 @@ bool Session::HandleCursorMoveMode(commands::Command* command, bool* result) {
       switch (code) {
         case 'h':
         case 'H':
+        case 0x08:  // Ctrl+h（ToUnicode が制御文字を返す場合）
           *result = MoveCursorLeft(command);
           return true;
         case 'l':
         case 'L':
+        case 0x0C:  // Ctrl+l
           *result = MoveCursorRight(command);
           return true;
         case 'j':
         case 'J':
+        case 0x0A:  // Ctrl+j
           *result = MoveCursorToEnd(command);
           return true;
         case 'k':
         case 'K':
+        case 0x0B:  // Ctrl+k
           *result = MoveCursorToBeginning(command);
           return true;
         default:
