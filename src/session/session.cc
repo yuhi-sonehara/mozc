@@ -3307,8 +3307,9 @@ void Session::Output(commands::Command* command) {
     segment->set_annotation(commands::Preedit::Segment::UNDERLINE);
     // Fork: 下書き表示でも組成のカーソル位置を反映する（2026-10-30）。
     // 常に末尾へ置いていたため、Ctrl+hjkl で移動しても表示が変わらなかった。
+    const size_t cursor_now = context_->composer().GetCursor();
     const uint32_t draft_cursor = static_cast<uint32_t>(
-        std::min<size_t>(context_->composer().GetCursor(), draft_len));
+        cursor_now < draft_len ? cursor_now : draft_len);
     preedit->set_cursor(draft_cursor);
   }
 }
