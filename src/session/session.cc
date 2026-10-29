@@ -562,9 +562,9 @@ bool Session::HandleCursorMoveMode(commands::Command* command, bool* result) {
     return false;
   }
   const commands::KeyEvent &key = command->input().key();
-  const uint32_t modifiers = composer::KeyEventUtil::GetModifiers(key);
-  const bool has_ctrl = composer::KeyEventUtil::HasCtrl(modifiers);
-  const bool has_alt = composer::KeyEventUtil::HasAlt(modifiers);
+  const uint32_t modifiers = KeyEventUtil::GetModifiers(key);
+  const bool has_ctrl = KeyEventUtil::HasCtrl(modifiers);
+  const bool has_alt = KeyEventUtil::HasAlt(modifiers);
   const uint32_t code = key.has_key_code() ? key.key_code() : 0;
   const bool is_esc =
       key.has_special_key() &&
