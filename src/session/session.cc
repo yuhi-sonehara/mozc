@@ -552,10 +552,11 @@ bool Session::SendKey(commands::Command* command) {
 }
 
 // Fork: 組成中のカーソル移動モード（2026-10-29 ご主人様の指示）。
-// インサート（組成）中に Esc か Ctrl+; でモードへ入り、h/l で左右、
+// インサート（組成）中に Ctrl+; でモードへ入り、h/l で左右、
 // j/k で行末/行頭（組成は1行なので上下の代替）、0/^ で行頭、$ で行末、
 // i で入力へ戻る。素の h/l/j/k はこのモード中だけ解釈するので、
-// 通常の入力では文字として打てる。
+// 通常の入力では文字として打てる。Esc は従来どおり組成の取消に残す
+// （既存シナリオの ESC ESC = 取消 を壊さないため）。
 bool Session::HandleCursorMoveMode(commands::Command* command, bool* result) {
   if (context_->state() != ImeContext::COMPOSITION) {
     cursor_move_mode_ = false;
@@ -575,7 +576,7 @@ bool Session::HandleCursorMoveMode(commands::Command* command, bool* result) {
   const bool is_semicolon = (code == ';');
 
   if (!cursor_move_mode_) {
-    if (is_esc || (has_ctrl && is_semicolon)) {
+    if (has_ctrl && is_semicolon) {
       cursor_move_mode_ = true;
       composer::jev::DebugLog("cursor move mode: on\n");
       command->mutable_output()->set_consumed(true);
