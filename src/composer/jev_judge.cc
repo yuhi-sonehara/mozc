@@ -265,6 +265,18 @@ bool SplitTrailingSegment(const std::string &romaji, std::string *prefix,
                           std::string *segment) {
   const size_t space = romaji.find_last_of(' ');
   if (space == std::string::npos) {
+    // Fork: 半角の句読点が組成に残っていても判定を止めない（2026-10-29）。
+    // 確定後の自動復帰で半角英数に戻った直後に打った「,」「.」は、そのまま
+    // 組成に残る。判定ゲートは [a-z0-9-] 以外を弾くため、句読点より後ろを
+    // 判定対象にすれば日本語の変換が再開する。
+    const size_t punct = romaji.find_last_of(",.");
+    if (punct != std::string::npos && punct + 1 < romaji.size()) {
+      *prefix = romaji.substr(0, punct + 1);
+      *segment = romaji.substr(punct + 1);
+      if (segment->size() >= kMinSegmentLength) {
+        return true;
+      }
+    }
     if (romaji.size() >= 4) {
       for (size_t i = romaji.size() - 1; i >= 2; --i) {
         const char prev = romaji[i - 1];

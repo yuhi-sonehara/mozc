@@ -1630,6 +1630,9 @@ absl::Time Session::last_command_time() const {
   return context_->last_command_time();
 }
 
+// Fork: HybridUiEnabled の定義はファイル後半（Output の直前）にあるため前方宣言。
+static bool HybridUiEnabled();
+
 bool Session::InsertCharacter(commands::Command* command) {
   composer::jev::DebugLog("Session::InsertCharacter\n");
   if (!command->input().has_key()) {
@@ -1654,6 +1657,17 @@ bool Session::InsertCharacter(commands::Command* command) {
     }
   };
   strip_stale_mode();
+
+  // Fork: 組成の先頭で打たれた「,」は日本語の読点として扱う（ハイブリッド有効時のみ）。
+  // 確定後の自動復帰で半角英数に戻っている直後は、読点が半角のまま組成に残り、
+  // 判定ゲートが弾いて以降の日本語が変換されなくなるため（2026-10-29）。
+  if (HybridUiEnabled() && context_->composer().Empty() &&
+      context_->composer().GetInputMode() == transliteration::HALF_ASCII &&
+      !key.has_special_key() && key.has_key_code() && key.key_code() == ',' &&
+      !KeyEventUtil::HasCtrl(KeyEventUtil::GetModifiers(key)) &&
+      !KeyEventUtil::HasAlt(KeyEventUtil::GetModifiers(key))) {
+    context_->mutable_composer()->SetInputMode(transliteration::HIRAGANA);
+  }
 
   if (key.input_style() == commands::KeyEvent::DIRECT_INPUT &&
       context_->state() == ImeContext::PRECOMPOSITION) {
