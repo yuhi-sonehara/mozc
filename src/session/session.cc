@@ -584,6 +584,30 @@ bool Session::HandleCursorMoveMode(commands::Command* command, bool* result) {
       *result = true;
       return true;
     }
+    // Fork: Ctrl+hjkl はモードに入らずそのまま移動する（Vim 風）。
+    // h/l = 左右、j/k = 行末/行頭（組成は1行なので上下の代替）。
+    if (has_ctrl && !has_alt) {
+      switch (code) {
+        case 'h':
+        case 'H':
+          *result = MoveCursorLeft(command);
+          return true;
+        case 'l':
+        case 'L':
+          *result = MoveCursorRight(command);
+          return true;
+        case 'j':
+        case 'J':
+          *result = MoveCursorToEnd(command);
+          return true;
+        case 'k':
+        case 'K':
+          *result = MoveCursorToBeginning(command);
+          return true;
+        default:
+          break;
+      }
+    }
     return false;
   }
 
