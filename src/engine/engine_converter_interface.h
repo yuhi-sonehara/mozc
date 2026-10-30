@@ -36,6 +36,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "absl/strings/string_view.h"
 #include "composer/composer.h"
@@ -165,6 +166,12 @@ class EngineConverterInterface {
   // Fork: 下書き変換（仮変換）用。直前の Convert() で得た各セグメントの
   // 最有力候補を連結した文字列を返す。Convert 前は空文字。
   virtual std::string GetDraftConversionValue() const { return std::string(); }
+
+  // Fork: 組成中の文節移動用。直前の Convert() が組んだセグメントの読み（key）の
+  // 文字数を返す。累積が組成の文字位置（境界）になる。
+  virtual std::vector<size_t> GetDraftConversionSegmentKeyLengths() const {
+    return {};
+  }
 
   // Clear conversion segments and the context.
   virtual void Reset() = 0;

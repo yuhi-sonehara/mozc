@@ -119,6 +119,8 @@ class EngineConverter : public EngineConverterInterface {
 
   // Fork: 下書き変換（仮変換）用。直前の Convert() の最有力候補を連結して返す。
   std::string GetDraftConversionValue() const override;
+  // Fork: 組成中の文節移動用（セグメントの読みの文字数）。
+  std::vector<size_t> GetDraftConversionSegmentKeyLengths() const override;
 
   // Clears conversion segments and the context.
   void Reset() override;

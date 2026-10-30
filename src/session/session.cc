@@ -728,6 +728,73 @@ bool Session::MoveCursorByWord(bool forward, commands::Command* command) {
     }
     return 0;  // 空白・記号
   };
+  // Fork: 日本語（非 ASCII）だけの組成は、変換器の文節境界で動かす。
+  // 下書き変換と同じ「Convert → 読み長を読む → Cancel」の型を使う（組成状態は変えない）。
+  bool has_ascii = false;
+  for (const unsigned char c : text) {
+    if (c < 0x80) {
+      has_ascii = true;
+      break;
+    }
+  }
+  if (!has_ascii && !text.empty()) {
+    if (context_->converter().IsActive()) {
+      context_->mutable_converter()->Cancel();
+    }
+    bool converted = false;
+    if (!context_->converter().IsActive()) {
+      converted = context_->mutable_converter()->Convert(
+          context_->composer(), context_->client_context());
+    }
+    if (converted) {
+      const std::vector<size_t> lens =
+          context_->converter().GetDraftConversionSegmentKeyLengths();
+      context_->mutable_converter()->Cancel();
+      size_t sum = 0;
+      for (const size_t l : lens) {
+        sum += l;
+      }
+      if (!lens.empty() && sum == composer->GetLength()) {
+        std::vector<size_t> bounds;
+        size_t acc = 0;
+        for (const size_t l : lens) {
+          acc += l;
+          bounds.push_back(acc);
+        }
+        const size_t cur = composer->GetCursor();
+        size_t target = cur;
+        if (forward) {
+          target = composer->GetLength();
+          for (const size_t b : bounds) {
+            if (b > cur) {
+              target = b;
+              break;
+            }
+          }
+        } else {
+          target = 0;
+          for (const size_t b : bounds) {
+            if (b < cur) {
+              target = b;
+            }
+          }
+        }
+        while (composer->GetCursor() > target) {
+          composer->MoveCursorLeft();
+        }
+        while (composer->GetCursor() < target) {
+          composer->MoveCursorRight();
+        }
+        ClearUndoContext();
+        if (Suggest(command->input())) {
+          Output(command);
+          return true;
+        }
+        OutputComposition(command);
+        return true;
+      }
+    }
+  }
   size_t pos = composer->GetCursor();
   if (pos > len) {
     pos = len;

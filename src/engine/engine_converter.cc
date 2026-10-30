@@ -727,6 +727,17 @@ std::string EngineConverter::GetDraftConversionValue() const {
   return out;
 }
 
+// Fork: 組成中の文節移動用。直前の Convert() のセグメント読みの文字数を返す。
+std::vector<size_t> EngineConverter::GetDraftConversionSegmentKeyLengths() const {
+  std::vector<size_t> lengths;
+  const size_t n = segments_.conversion_segments_size();
+  lengths.reserve(n);
+  for (size_t i = 0; i < n; ++i) {
+    lengths.push_back(Util::CharsLen(segments_.conversion_segment(i).key()));
+  }
+  return lengths;
+}
+
 void EngineConverter::Reset() {
   DCHECK(CheckState(COMPOSITION | SUGGESTION | PREDICTION | CONVERSION));
 
