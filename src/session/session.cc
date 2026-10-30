@@ -2844,6 +2844,12 @@ bool Session::MaybeConvertShortRunToKana() {
     composer->InsertCharacter(raw.substr(i, 1));
   }
   composer::jev::SetModeOrigin(composer::jev::ModeOrigin::kAutoSwitchedByJudge);
+  // 切替直後のキーにはクライアントの古いモード（半角英数）が載っている。
+  // そのまま渡すと Composer::ProcessCompositionInput がキーのモードで
+  // ひらがなを半角へ戻してしまい、続く打鍵が ASCII のままになる
+  // （実測: ha+Space のあとの ni が「に」にならない）。
+  // クライアントが追いつくまでキーのモードを無視する（MaybeReturnToHalfAscii と対）。
+  server_mode_locked_ = true;
   SetSessionState(ImeContext::COMPOSITION, context_.get());
   composer::jev::DebugLog("defer-short switch: raw=\"" + raw + "\" preedit=\"" +
                           composer->GetStringForPreedit() + "\"\n");
