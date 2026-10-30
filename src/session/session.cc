@@ -3292,7 +3292,12 @@ void Session::Output(commands::Command* command) {
     // Suggest が用意した候補から拾う。
     TryDraftFromCandidates(command->output());
   }
-  if (!draft_conversion_value_.empty()) {
+  // Fork: カーソルが末尾にないときは下書き（変換後の表示）をやめて、かな組成を
+  // そのまま見せる。下書きは生ローマ字より短く、位置を対応付けられないため、
+  // カーソル移動が画面上で動かない（2026-10-30）。末尾に戻れば下書きに戻る。
+  const bool cursor_at_end =
+      context_->composer().GetCursor() == context_->composer().GetLength();
+  if (!draft_conversion_value_.empty() && cursor_at_end) {
     commands::Preedit* preedit = command->mutable_output()->mutable_preedit();
     preedit->Clear();
     commands::Preedit::Segment* segment = preedit->add_segment();
