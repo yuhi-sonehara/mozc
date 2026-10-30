@@ -75,6 +75,12 @@ constexpr double kMinConfidenceJa = 0.90;    // ja 判定用（0.90 未満では
 // 末尾セグメント（最後の空白以降）に許可する最小長。
 // 2 打鍵語（助詞「に」など）の救済のため 2 文字を下限とする（1 文字は誤爆する）。
 constexpr size_t kMinSegmentLength = 2;
+// 打鍵ごとの即時判定に許可する最小長。2 打鍵で判定すると英単語の2文字目
+// （ha / ta / se 等）で誤ってかなへ切り替わるため、即時は 3 文字から。
+// 例外は略語境界の直後（NASAni の "ni" / APIwo の "wo"）だけ。語の切れ目が
+// 明示されているので従来どおり即時に判定する。単独の2打鍵語は Session 側が
+// 区切り（Space / Enter）で判定する（defer-short）。
+constexpr size_t kMinImmediateLength = 3;
 // 1 回の呼び出しで許す待ち時間の上限（ミリ秒）。IME を止めないための上限。
 #ifdef _WIN32
 constexpr DWORD kIpcTimeoutMsec = 5;
@@ -522,6 +528,14 @@ bool Judge::IsEnglish(const std::string &romaji) {
   return verdict.decision == "en" && verdict.confidence >= kMinConfidence;
 }
 
+// 2 打鍵の半角組成を区切り（Space / Enter）で判定する。打鍵途中の即時判定は
+// kMinImmediateLength で止めてあるため、2 打鍵語はここだけでかな化する。
+// 判定サーバー不在・応答なしのときは false（従来どおり ASCII のまま）。
+bool JudgeShortRunIsKana(const std::string &romaji) {
+  const Verdict verdict = QueryDecision(romaji, -1);
+  return verdict.decision == "ja" && verdict.confidence >= kMinConfidenceJa;
+}
+
 void DebugLog(const std::string &line) { WriteDebugLog(line); }
 
 void NotifyCommit(const std::string &raw, int mode, const std::string &text) {
@@ -608,13 +622,23 @@ bool MaybeConvertToKana(Composer *composer) {
   // 判定対象は「末尾セグメント」だけ。半角英数で「web 」まで打った後の「web wo」は
   // 英字のみのゲートでは判定に一届かず、そのままだと文頭の英単語の後ろで日本語が
   // 打てなくなる。空白が無い打鍵は大文字略語の境界でも分割する（NASAni → NASA + に）。
-  // セグメントは 2 文字以上なら問い合わせる（助詞「に」など 2 打鍵語の救済）。
+  // 問い合わせるのは 2 文字以上のセグメント。ただし 2 文字の即時判定は略語境界の
+  // 直後だけ（単独の 2 打鍵語は Session の区切り判定が担う）。
   // 対象キーは英字・数字・'-'（長音。de-ta = でーた 等）。
   std::string prefix;
   std::string segment;
   if (!SplitTrailingSegment(romaji, &prefix, &segment) ||
       segment.size() < kMinSegmentLength || !IsJudgeableKeys(segment)) {
     return false;
+  }
+  if (segment.size() < kMinImmediateLength) {
+    // 2 打鍵の即時判定は、直前が略語（大文字・数字）で終わるときだけ許可する。
+    const char last = prefix.empty() ? '\0' : prefix[prefix.size() - 1];
+    const bool after_acronym = (last >= 'A' && last <= 'Z') ||
+                               (last >= '0' && last <= '9');
+    if (!after_acronym) {
+      return false;
+    }
   }
 
   in_hook = true;  // 判定と組み直しの全体をガードする（組み直し中の再入防止）

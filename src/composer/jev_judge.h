@@ -63,6 +63,10 @@ class Judge {
 // Composer::ProcessCompositionInput から呼ばれる。
 bool MaybeConvertToKana(Composer *composer);
 
+// 2 打鍵の半角組成を区切り（Space / Enter）で判定する。日本語 (ja) と
+// 確信できたら true。判定サーバー不通時は false（従来動作）。
+bool JudgeShortRunIsKana(const std::string &romaji);
+
 // 確定テキストの記録（ロガー改修）: 判定サーバーへ commit イベントを送る。
 // 確定したテキストをサーバー側の JSONL（judge_commits）へ記録し、
 // 判定モデルの正解ラベルを作るための素材になる。

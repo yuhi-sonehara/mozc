@@ -148,6 +148,8 @@ class Session {
   bool ConvertOrCommit(mozc::commands::Command* command);
   // Fork: Space 用。判定由来の組成は空白挿入、それ以外は Convert。
   bool SpaceOrConvert(mozc::commands::Command* command);
+  // Fork: 2打鍵の半角組成を区切り（Space / Enter）で判定し、日本語ならかなへ組み直す。
+  bool MaybeConvertShortRunToKana();
   // Fork: 半角英数の組成を生ローマ字からかなへ組み直してから変換する。
   bool ForceKanaAndConvert(mozc::commands::Command* command);
   // Fork: かなへ切り替えた組成を生ローマ字（半角英数）へ戻す。

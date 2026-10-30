@@ -2774,6 +2774,10 @@ bool Session::DeleteCandidateFromHistory(commands::Command* command) {
 static bool HybridUiEnabled();
 
 bool Session::ConvertOrCommit(commands::Command* command) {
+  // Fork: 2 打鍵の半角組成は、確定の時点で初めて判定する（打鍵途中の誤切替を防ぐ）。
+  if (MaybeConvertShortRunToKana()) {
+    return Convert(command);
+  }
   // Fork: 日英判定フックがひらがなへ切り替えた組成では、Enter を「文全体の変換」に
   // 使う（Space は素のまま空白挿入）。
   if (composer::jev::GetModeOrigin() ==
@@ -2809,6 +2813,43 @@ bool Session::ForceAscii(commands::Command* command) {
   return true;
 }
 
+// Fork: 2 打鍵の半角組成は、打鍵途中ではなく区切り（Space / Enter）で判定する。
+// 即時判定の下限を 3 打鍵へ上げたため（jev_judge.cc の kMinImmediateLength）、
+// 2 打鍵語（ha / ni / wo 等）の救済はここが担う。日本語と判定できたときだけ
+// 生ローマ字からひらがなへ組み直す。判定サーバー不通時は false（従来動作）。
+bool Session::MaybeConvertShortRunToKana() {
+  if (context_->state() != ImeContext::COMPOSITION) {
+    return false;
+  }
+  composer::Composer* composer = context_->mutable_composer();
+  if (composer->GetInputMode() != transliteration::HALF_ASCII) {
+    return false;
+  }
+  const std::string raw = composer->GetRawString();
+  if (raw.size() != 2) {
+    return false;
+  }
+  for (const char c : raw) {
+    if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'))) {
+      return false;
+    }
+  }
+  if (!composer::jev::JudgeShortRunIsKana(raw)) {
+    return false;
+  }
+  composer->SetInputMode(transliteration::HIRAGANA);
+  composer->SetNewInput();
+  composer->DeleteRange(0, composer->GetLength());
+  for (std::string::size_type i = 0; i < raw.size(); ++i) {
+    composer->InsertCharacter(raw.substr(i, 1));
+  }
+  composer::jev::SetModeOrigin(composer::jev::ModeOrigin::kAutoSwitchedByJudge);
+  SetSessionState(ImeContext::COMPOSITION, context_.get());
+  composer::jev::DebugLog("defer-short switch: raw=\"" + raw + "\" preedit=\"" +
+                          composer->GetStringForPreedit() + "\"\n");
+  return true;
+}
+
 // Fork: 半角英数の組成を、生ローマ字からかなへ組み直してから変換する。判定が
 // 日本語を英語と誤ったときの救済用（2026-10-28 ご主人様の指示）。
 bool Session::ForceKanaAndConvert(commands::Command* command) {
@@ -2833,6 +2874,11 @@ bool Session::ForceKanaAndConvert(commands::Command* command) {
 }
 
 bool Session::SpaceOrConvert(commands::Command* command) {
+  // Fork: 2 打鍵の半角組成は、区切り（Space）の時点で初めて判定する。
+  if (MaybeConvertShortRunToKana()) {
+    command->mutable_input()->mutable_key()->set_key_code(' ');
+    return InsertCharacter(command);
+  }
   // Fork: 判定由来の組成（ハイブリッド入力）では Space を空白として扱う。
   // 変換は Enter に集約し、内部のモードを意識せずに済むようにする。
   // 手動でひらがなにした組成は素の Mozc と同じく変換。
