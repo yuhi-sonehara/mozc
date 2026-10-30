@@ -154,6 +154,8 @@ class Session {
   bool ForceAscii(mozc::commands::Command* command);
   // Fork: 組成中のカーソル移動モード（Vim 風）。処理したら true を返す。
   bool HandleCursorMoveMode(mozc::commands::Command* command, bool* result);
+  // Fork: 単語単位のカーソル移動（移動モードの w/b）。
+  bool MoveCursorByWord(bool forward, mozc::commands::Command* command);
   // Starts conversion not using user history.  This is used for debugging.
   bool ConvertWithoutHistory(mozc::commands::Command* command);
   bool ConvertNext(mozc::commands::Command* command);

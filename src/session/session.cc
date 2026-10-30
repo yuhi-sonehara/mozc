@@ -689,6 +689,14 @@ bool Session::HandleCursorMoveMode(commands::Command* command, bool* result) {
     case '$':
       *result = MoveCursorToEnd(command);
       return true;
+    case 'w':
+    case 'W':
+      *result = MoveCursorByWord(true, command);
+      return true;
+    case 'b':
+    case 'B':
+      *result = MoveCursorByWord(false, command);
+      return true;
     default:
       // モード中の未割当キーは文字を挿入せずに消費する。
       command->mutable_output()->set_consumed(true);
@@ -696,6 +704,70 @@ bool Session::HandleCursorMoveMode(commands::Command* command, bool* result) {
       *result = true;
       return true;
   }
+}
+// Fork: 単語単位のカーソル移動（2026-10-30 ご主人様の指示）。
+// 表示中の組成を「英数字の連なり」「かな・漢字の連なり」「空白・記号」に分け、
+// 次/前の単語の先頭へ動かす。組成は短いので 1 文字ずつ動かして合わせる。
+bool Session::MoveCursorByWord(bool forward, commands::Command* command) {
+  command->mutable_output()->set_consumed(true);
+  composer::Composer *composer = context_->mutable_composer();
+  const std::string text = composer->GetStringForPreedit();
+  const size_t len = Util::CharsLen(text);
+  auto cls = [&text](size_t i) -> int {
+    const auto ch = Util::Utf8SubString(text, i, 1);
+    if (ch.empty()) {
+      return 0;
+    }
+    const unsigned char c = static_cast<unsigned char>(ch[0]);
+    if (c >= 0x80) {
+      return 2;  // かな・漢字
+    }
+    if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+        (c >= '0' && c <= '9')) {
+      return 1;  // 英数字
+    }
+    return 0;  // 空白・記号
+  };
+  size_t pos = composer->GetCursor();
+  if (pos > len) {
+    pos = len;
+  }
+  size_t target = pos;
+  if (forward) {
+    const int word = (pos < len) ? cls(pos) : 0;
+    while (pos < len && word != 0 && cls(pos) == word) {
+      ++pos;
+    }
+    while (pos < len && cls(pos) == 0) {
+      ++pos;
+    }
+    target = pos;
+  } else {
+    if (pos > 0) {
+      --pos;
+    }
+    while (pos > 0 && cls(pos) == 0) {
+      --pos;
+    }
+    const int word = (pos < len) ? cls(pos) : 0;
+    while (pos > 0 && word != 0 && cls(pos - 1) == word) {
+      --pos;
+    }
+    target = pos;
+  }
+  while (composer->GetCursor() > target) {
+    composer->MoveCursorLeft();
+  }
+  while (composer->GetCursor() < target) {
+    composer->MoveCursorRight();
+  }
+  ClearUndoContext();
+  if (Suggest(command->input())) {
+    Output(command);
+    return true;
+  }
+  OutputComposition(command);
+  return true;
 }
 bool Session::UpdateCompositionInternal(commands::Command* command) {
   command->mutable_output()->set_consumed(true);
