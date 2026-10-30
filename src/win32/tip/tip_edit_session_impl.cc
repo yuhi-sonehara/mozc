@@ -452,6 +452,12 @@ HRESULT UpdatePrivateContext(TipTextService* text_service, ITfContext* context,
                                         text_service->GetClientID(),
                                         native_mode);
     }
+    // Fork: 手動切替のモード表示（インジケーター）は、可視フラグを立てるだけでは
+    // 描かれない経路がある（TSF のモード変更通知が来ない）。UI 更新を明示的に促す。
+    // 自動切替（suppress）のときは可視フラグが立たないので、ここでは何も出ない。
+    if (input_mode_manager->IsIndicatorVisible()) {
+      text_service->PostUIUpdateMessage();
+    }
   }
   return S_OK;
 }
