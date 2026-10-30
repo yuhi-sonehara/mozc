@@ -2752,7 +2752,16 @@ bool Session::ToggleAlphanumericMode(commands::Command* command) {
   composer::jev::SetModeOrigin(composer::jev::ModeOrigin::kManualByUser);
   // ユーザーの明示的な切替が最優先。自動復帰のロックは解除する。
   server_mode_locked_ = false;
+  // 直前の自動復帰が残した「表示を出さない」予約を打ち消す。これを残すと
+  // 確定直後の Ctrl+Space が非表示になる（2026-10-31 実測の報告）。
+  suppress_mode_indicator_once_ = false;
+  const int jev_before_mode =
+      static_cast<int>(context_->composer().GetInputMode());
   context_->mutable_composer()->ToggleInputMode();
+  composer::jev::DebugLog(
+      "manual toggle: before=" + std::to_string(jev_before_mode) + " after=" +
+      std::to_string(static_cast<int>(context_->composer().GetInputMode())) +
+      "\n");
 
   OutputFromState(command);
   return true;
