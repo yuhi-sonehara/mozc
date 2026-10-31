@@ -402,6 +402,8 @@ void WriteDebugLog(const std::string &line) {
 
 struct Verdict {
   std::string decision;
+  // 判定理由。死列（かなとして成立しない）の判定だけ半角へ戻すために使う。
+  std::string reason;
   double confidence = 0.0;
   // 判定サーバーが返す区切り（"en:web|ja:wohiraku"）。空なら区切りなし。
   // first = true は「半角英数のまま残す英語トークン」を表す。
@@ -443,6 +445,7 @@ Verdict QueryDecision(const std::string &romaji, int mode) {
     return verdict;
   }
   FindStringValue(response, "decision", &verdict.decision);
+  FindStringValue(response, "reason", &verdict.reason);
   FindNumberValue(response, "confidence", &verdict.confidence);
   std::string segs;
   if (FindStringValue(response, "segs", &segs)) {
@@ -485,6 +488,7 @@ void SendCommitRequest(const std::string &raw, int mode,
 #else  // !_WIN32
 struct Verdict {
   std::string decision;
+  std::string reason;
   double confidence = 0.0;
   std::vector<std::pair<bool, std::string>> segments;
 };
@@ -566,9 +570,12 @@ bool MaybeConvertToKana(Composer *composer) {
   }
 
   const transliteration::TransliterationType mode = composer->GetInputMode();
-  // 2026-10-22: ハイブリッドは半角英数モードだけに限定する。ひらがなモード
-  // （素の Mozc の入力）では何もしない = かな→英字の自動復帰は行わない。
-  if (mode != transliteration::HALF_ASCII) {
+  // 2026-10-22: ハイブリッドの起点は半角英数モード。
+  // 2026-10-31: 判定由来の組成（kAutoSwitchedByJudge）に限り、ひらがなモードでも
+  // 判定を続ける。日本語の途中に打った英単語を、確定せずに ASCII のまま残すため。
+  const bool judge_origin = GetModeOrigin() == ModeOrigin::kAutoSwitchedByJudge;
+  if (mode != transliteration::HALF_ASCII &&
+      !(mode == transliteration::HIRAGANA && judge_origin)) {
     return false;
   }
   const int mode_value = static_cast<int>(mode);
@@ -627,23 +634,73 @@ bool MaybeConvertToKana(Composer *composer) {
   // 対象キーは英字・数字・'-'（長音。de-ta = でーた 等）。
   std::string prefix;
   std::string segment;
-  if (!SplitTrailingSegment(romaji, &prefix, &segment) ||
-      segment.size() < kMinSegmentLength || !IsJudgeableKeys(segment)) {
-    return false;
-  }
-  if (segment.size() < kMinImmediateLength) {
-    // 2 打鍵の即時判定は、直前が略語（大文字・数字）で終わるときだけ許可する。
-    const char last = prefix.empty() ? '\0' : prefix[prefix.size() - 1];
-    const bool after_acronym = (last >= 'A' && last <= 'Z') ||
-                               (last >= '0' && last <= '9');
-    if (!after_acronym) {
+  if (mode == transliteration::HIRAGANA) {
+    // 判定由来の組成では、末尾ではなく生ローマ字全体を再判定する。日本語の
+    // 途中に打った英単語（"konnichiwa webwohiraku"）を保つには、全体を
+    // 区切り直して組み直す必要がある。
+    segment = romaji;
+    if (segment.size() < kMinSegmentLength || !IsJudgeableKeys(segment)) {
       return false;
+    }
+  } else {
+    if (!SplitTrailingSegment(romaji, &prefix, &segment) ||
+        segment.size() < kMinSegmentLength || !IsJudgeableKeys(segment)) {
+      return false;
+    }
+    if (segment.size() < kMinImmediateLength) {
+      // 2 打鍵の即時判定は、直前が略語（大文字・数字）で終わるときだけ許可する。
+      const char last = prefix.empty() ? '\0' : prefix[prefix.size() - 1];
+      const bool after_acronym = (last >= 'A' && last <= 'Z') ||
+                                 (last >= '0' && last <= '9');
+      if (!after_acronym) {
+        return false;
+      }
     }
   }
 
   in_hook = true;  // 判定と組み直しの全体をガードする（組み直し中の再入防止）
   const Verdict verdict = QueryDecision(segment, mode_value);
-  if (verdict.decision != "ja" || verdict.confidence < kMinConfidenceJa) {
+  if (mode == transliteration::HIRAGANA) {
+    // 組成の現在の表示。ASCII とかなの混在具合で「戻す / 組み直す」を判断する。
+    const std::string preedit = composer->GetStringForPreedit();
+    bool preedit_has_ascii = false;
+    bool preedit_has_kana = false;
+    for (const char c : preedit) {
+      const unsigned char u = static_cast<unsigned char>(c);
+      if (u >= 0x80) {
+        preedit_has_kana = true;
+      } else if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) {
+        preedit_has_ascii = true;
+      }
+    }
+    // (a) かなを含まず、死列（かなとして成立しない列）なら半角へ戻す。
+    //     かなを含む組成で全体を ASCII にすると日本語部分まで壊れるため、
+    //     その場合は下の混在組み直しに任せる。
+    if (verdict.decision == "en" && verdict.confidence >= kMinConfidence &&
+        verdict.reason.rfind("dead column", 0) == 0 && !preedit_has_kana) {
+      rebuild({std::make_pair(true, romaji)});
+      SetModeOrigin(ModeOrigin::kAutoSwitchedByJudge);
+      WriteDebugLog("switch to half-ascii: raw=\"" + romaji +
+                    "\" reason=dead column preedit=\"" +
+                    composer->GetStringForPreedit() + "\"\n");
+      in_hook = false;
+      return true;
+    }
+    if (verdict.decision != "ja" || verdict.confidence < kMinConfidenceJa) {
+      in_hook = false;
+      return false;
+    }
+    // 英語スパンが無く、組成にも ASCII が残っていないなら組み直さない
+    // （純粋なかな入力のたびに全体を再構築しない）。
+    bool has_en_span = false;
+    for (const std::pair<bool, std::string> &seg : verdict.segments) {
+      has_en_span = has_en_span || seg.first;
+    }
+    if (!has_en_span && !preedit_has_ascii) {
+      in_hook = false;
+      return false;
+    }
+  } else if (verdict.decision != "ja" || verdict.confidence < kMinConfidenceJa) {
     in_hook = false;
     return false;
   }
