@@ -546,6 +546,19 @@ void NotifyCommit(const std::string &raw, int mode, const std::string &text) {
   SendCommitRequest(raw, mode, text);
 }
 
+namespace {
+// 自動切替の直後 1 回だけ表示更新を抑制するための予約。
+bool g_suppress_mode_indicator = false;
+}  // namespace
+
+void RequestModeIndicatorSuppression() { g_suppress_mode_indicator = true; }
+
+bool ConsumeModeIndicatorSuppression() {
+  const bool requested = g_suppress_mode_indicator;
+  g_suppress_mode_indicator = false;
+  return requested;
+}
+
 void SetModeOrigin(ModeOrigin origin) {
   // IME サーバーは単一スレッドなので状態は 1 つで足りる（thread_local 不要）。
   g_mode_origin = origin;
@@ -680,6 +693,9 @@ bool MaybeConvertToKana(Composer *composer) {
         verdict.reason.rfind("dead column", 0) == 0 && !preedit_has_kana) {
       rebuild({std::make_pair(true, romaji)});
       SetModeOrigin(ModeOrigin::kAutoSwitchedByJudge);
+      if (composer->GetInputMode() != mode) {
+        RequestModeIndicatorSuppression();
+      }
       WriteDebugLog("switch to half-ascii: raw=\"" + romaji +
                     "\" reason=dead column preedit=\"" +
                     composer->GetStringForPreedit() + "\"\n");
@@ -726,6 +742,9 @@ bool MaybeConvertToKana(Composer *composer) {
 
   rebuild(segments);
   SetModeOrigin(ModeOrigin::kAutoSwitchedByJudge);
+  if (composer->GetInputMode() != mode) {
+    RequestModeIndicatorSuppression();
+  }
 
   std::string seg_log;
   for (const std::pair<bool, std::string> &seg : segments) {

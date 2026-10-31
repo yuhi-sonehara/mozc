@@ -3479,9 +3479,12 @@ void Session::Output(commands::Command* command) {
   }
   // Fork: 日英判定による自動切替（と確定時の自動復帰）では、クライアントの
   // モード表示を出さない。手動の Ctrl+Space などは従来どおり表示する。
-  if (composer::jev::GetModeOrigin() ==
-          composer::jev::ModeOrigin::kAutoSwitchedByJudge ||
-      suppress_mode_indicator_once_) {
+  // 2026-10-31: 抑制は「切替の瞬間の 1 回」だけにした。origin が auto の間ずっと
+  // 抑制すると、毎打鍵の組み直しで表示が出ず、手動切替の表示まで巻き添えになる。
+  const bool suppress_indicator_now =
+      suppress_mode_indicator_once_ ||
+      composer::jev::ConsumeModeIndicatorSuppression();
+  if (suppress_indicator_now) {
     command->mutable_output()->set_suppress_mode_indicator(true);
   }
   suppress_mode_indicator_once_ = false;

@@ -67,6 +67,11 @@ bool MaybeConvertToKana(Composer *composer);
 // 確信できたら true。判定サーバー不通時は false（従来動作）。
 bool JudgeShortRunIsKana(const std::string &romaji);
 
+// 自動切替でモードが変わった直後の 1 回だけ、クライアントのモード表示更新を
+// 抑制する。手動の切替（Ctrl+Space 等）は抑制せず、必ず表示する。
+void RequestModeIndicatorSuppression();
+bool ConsumeModeIndicatorSuppression();
+
 // 確定テキストの記録（ロガー改修）: 判定サーバーへ commit イベントを送る。
 // 確定したテキストをサーバー側の JSONL（judge_commits）へ記録し、
 // 判定モデルの正解ラベルを作るための素材になる。
