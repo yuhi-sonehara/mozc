@@ -255,6 +255,22 @@ bool IsJudgeableKeys(const std::string &text) {
   return true;
 }
 
+// 生ローマ字全体を判定に回してよいか（空白を含む）。判定由来の組成を
+// まとめて組み直すときに使う。空白はサーバー側で区切りとして扱われる。
+bool IsJudgeableRun(const std::string &text) {
+  if (text.empty()) {
+    return false;
+  }
+  for (const char c : text) {
+    const bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                    (c >= '0' && c <= '9') || c == '-' || c == ' ';
+    if (!ok) {
+      return false;
+    }
+  }
+  return true;
+}
+
 // 末尾セグメント = 最後の空白以降の部分。空白が無ければ入力全体。
 // 「web wo」のように空白入りの入力を判定に回すために使う。
 //   prefix   : "web "（末尾セグメントより前の部分。判定はしない）
@@ -639,20 +655,30 @@ bool MaybeConvertToKana(Composer *composer) {
                                               : transliteration::HIRAGANA);
   };
 
-  // 判定対象は「末尾セグメント」だけ。半角英数で「web 」まで打った後の「web wo」は
-  // 英字のみのゲートでは判定に一届かず、そのままだと文頭の英単語の後ろで日本語が
-  // 打てなくなる。空白が無い打鍵は大文字略語の境界でも分割する（NASAni → NASA + に）。
-  // 問い合わせるのは 2 文字以上のセグメント。ただし 2 文字の即時判定は略語境界の
-  // 直後だけ（単独の 2 打鍵語は Session の区切り判定が担う）。
-  // 対象キーは英字・数字・'-'（長音。de-ta = でーた 等）。
+  // 現在の表示。ASCII / かなの混在具合で「全体を判定するか、末尾だけで
+  // 判定するか」を決める。
+  const std::string preedit_now = composer->GetStringForPreedit();
+  bool preedit_has_ascii = false;
+  bool preedit_has_kana = false;
+  for (const char c : preedit_now) {
+    const unsigned char u = static_cast<unsigned char>(c);
+    if (u >= 0x80) {
+      preedit_has_kana = true;
+    } else if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) {
+      preedit_has_ascii = true;
+    }
+  }
+  // 判定由来の組成がすでにかなを含むなら、末尾ではなく生ローマ字全体（空白を
+  // 含む）を判定して組み直す。末尾だけを組み直すと、手前のかなを ASCII で
+  // 入れ直して壊す（実測: は な → ha na）。
+  const bool whole_run =
+      judge_origin && (mode == transliteration::HIRAGANA || preedit_has_kana);
+
   std::string prefix;
   std::string segment;
-  if (mode == transliteration::HIRAGANA) {
-    // 判定由来の組成では、末尾ではなく生ローマ字全体を再判定する。日本語の
-    // 途中に打った英単語（"konnichiwa webwohiraku"）を保つには、全体を
-    // 区切り直して組み直す必要がある。
+  if (whole_run) {
     segment = romaji;
-    if (segment.size() < kMinSegmentLength || !IsJudgeableKeys(segment)) {
+    if (segment.size() < kMinSegmentLength || !IsJudgeableRun(segment)) {
       return false;
     }
   } else {
@@ -673,22 +699,50 @@ bool MaybeConvertToKana(Composer *composer) {
 
   in_hook = true;  // 判定と組み直しの全体をガードする（組み直し中の再入防止）
   const Verdict verdict = QueryDecision(segment, mode_value);
-  if (mode == transliteration::HIRAGANA) {
-    // 組成の現在の表示。ASCII とかなの混在具合で「戻す / 組み直す」を判断する。
-    const std::string preedit = composer->GetStringForPreedit();
-    bool preedit_has_ascii = false;
-    bool preedit_has_kana = false;
-    for (const char c : preedit) {
-      const unsigned char u = static_cast<unsigned char>(c);
-      if (u >= 0x80) {
-        preedit_has_kana = true;
-      } else if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) {
-        preedit_has_ascii = true;
+
+  if (whole_run) {
+    // サーバーが返すスパン（ja:ha|en: |ja:na|...）で全体を組み直す。
+    std::string joined;
+    bool has_ja_span = false;
+    bool has_en_word = false;
+    for (const std::pair<bool, std::string> &seg : verdict.segments) {
+      joined += seg.second;
+      if (!seg.first) {
+        has_ja_span = true;
+        continue;
+      }
+      for (const char c : seg.second) {
+        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) {
+          has_en_word = true;
+          break;
+        }
       }
     }
-    // (a) かなを含まず、死列（かなとして成立しない列）なら半角へ戻す。
-    //     かなを含む組成で全体を ASCII にすると日本語部分まで壊れるため、
-    //     その場合は下の混在組み直しに任せる。
+    if (!verdict.segments.empty() && joined == romaji && has_ja_span) {
+      if (!has_en_word && !preedit_has_ascii) {
+        in_hook = false;
+        return false;  // すでにかなだけ。組み直さない。
+      }
+      rebuild(verdict.segments);
+      SetModeOrigin(ModeOrigin::kAutoSwitchedByJudge);
+      if (composer->GetInputMode() != mode) {
+        RequestModeIndicatorSuppression();
+      }
+      std::string seg_log;
+      for (const std::pair<bool, std::string> &seg : verdict.segments) {
+        if (!seg_log.empty()) {
+          seg_log += "|";
+        }
+        seg_log += seg.first ? "en:" : "ja:";
+        seg_log += seg.second;
+      }
+      WriteDebugLog("switch to hiragana (whole): raw=\"" + romaji +
+                    "\" segs=\"" + seg_log + "\" preedit=\"" +
+                    composer->GetStringForPreedit() + "\"\n");
+      in_hook = false;
+      return true;
+    }
+    // スパンが無い・一致しない場合は従来の単一判定にフォールバックする。
     if (verdict.decision == "en" && verdict.confidence >= kMinConfidence &&
         verdict.reason.rfind("dead column", 0) == 0 && !preedit_has_kana) {
       rebuild({std::make_pair(true, romaji)});
@@ -702,21 +756,19 @@ bool MaybeConvertToKana(Composer *composer) {
       in_hook = false;
       return true;
     }
-    if (verdict.decision != "ja" || verdict.confidence < kMinConfidenceJa) {
-      in_hook = false;
-      return false;
-    }
-    // 英語スパンが無く、組成にも ASCII が残っていないなら組み直さない
-    // （純粋なかな入力のたびに全体を再構築しない）。
-    bool has_en_span = false;
-    for (const std::pair<bool, std::string> &seg : verdict.segments) {
-      has_en_span = has_en_span || seg.first;
-    }
-    if (!has_en_span && !preedit_has_ascii) {
-      in_hook = false;
-      return false;
-    }
-  } else if (verdict.decision != "ja" || verdict.confidence < kMinConfidenceJa) {
+  }
+
+  if (verdict.decision != "ja" || verdict.confidence < kMinConfidenceJa) {
+    in_hook = false;
+    return false;
+  }
+  // 英語スパンが無く、組成にも ASCII が残っていないなら組み直さない
+  // （純粋なかな入力のたびに全体を再構築しない）。
+  bool has_en_span = false;
+  for (const std::pair<bool, std::string> &seg : verdict.segments) {
+    has_en_span = has_en_span || seg.first;
+  }
+  if (!has_en_span && !preedit_has_ascii) {
     in_hook = false;
     return false;
   }
