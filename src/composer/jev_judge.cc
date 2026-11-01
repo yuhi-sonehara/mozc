@@ -81,9 +81,14 @@ constexpr size_t kMinSegmentLength = 2;
 // 明示されているので従来どおり即時に判定する。単独の2打鍵語は Session 側が
 // 区切り（Space / Enter）で判定する（defer-short）。
 constexpr size_t kMinImmediateLength = 3;
-// 1 回の呼び出しで許す待ち時間の上限（ミリ秒）。IME を止めないための上限。
+// 1 往復で許す待ち時間の上限（ミリ秒）。IME を止めないための上限。
+// 2026-11-02: 5ms は Windows の既定タイマー粒度（約 15.6ms）より短く、サーバーが
+// 一瞬スケジュールから外れただけで応答を取り落としていた（実測 2026-11-01
+// 21:04:41: 応答が届かず サーバー側 write failed x2 → 判定なしで ASCII 確定）。
+// 25ms に広げ、接続できたのに応答が無いときだけ短い期限で 1 回やり直す。
 #ifdef _WIN32
-constexpr DWORD kIpcTimeoutMsec = 5;
+constexpr DWORD kIpcTimeoutMsec = 25;
+constexpr DWORD kIpcRetryTimeoutMsec = 15;
 constexpr DWORD kConnectRetryWaitMsec = 50;
 const wchar_t kPipeName[] = L"\\\\.\\pipe\\jevime_judge";
 #endif  // _WIN32
@@ -166,7 +171,10 @@ bool FindNumberValue(const std::string &json, const std::string &key,
 }
 
 // 名前付きパイプへ 1 往復する。往復できなければ空文字を返す。
-std::string Transact(const std::string &request) {
+// connected には「サーバーへ接続できたか」を返す（再試行の判断に使う）。
+std::string TransactOnce(const std::string &request, DWORD timeout_msec,
+                         bool *connected) {
+  *connected = false;
   HANDLE pipe = INVALID_HANDLE_VALUE;
   for (int attempt = 0; attempt < 2 && pipe == INVALID_HANDLE_VALUE;
        ++attempt) {
@@ -179,6 +187,7 @@ std::string Transact(const std::string &request) {
   if (pipe == INVALID_HANDLE_VALUE) {
     return "";  // サーバー不在。判定なし。
   }
+  *connected = true;
 
   std::string response;
   HANDLE event = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
@@ -190,7 +199,7 @@ std::string Transact(const std::string &request) {
     BOOL ok = ::WriteFile(pipe, line.data(), static_cast<DWORD>(line.size()),
                           &written, &write_ov);
     if (!ok && ::GetLastError() == ERROR_IO_PENDING) {
-      ok = (::WaitForSingleObject(event, kIpcTimeoutMsec) == WAIT_OBJECT_0);
+      ok = (::WaitForSingleObject(event, timeout_msec) == WAIT_OBJECT_0);
       if (ok) {
         ok = (::GetOverlappedResult(pipe, &write_ov, &written, FALSE) != FALSE);
       } else {
@@ -209,7 +218,7 @@ std::string Transact(const std::string &request) {
         DWORD read = 0;
         BOOL rok = ::ReadFile(pipe, buf, sizeof(buf), &read, &read_ov);
         if (!rok && ::GetLastError() == ERROR_IO_PENDING) {
-          if (::WaitForSingleObject(event, kIpcTimeoutMsec) == WAIT_OBJECT_0) {
+          if (::WaitForSingleObject(event, timeout_msec) == WAIT_OBJECT_0) {
             rok = (::GetOverlappedResult(pipe, &read_ov, &read, FALSE) != FALSE);
           } else {
             ::CancelIoEx(pipe, &read_ov);
@@ -229,6 +238,17 @@ std::string Transact(const std::string &request) {
     ::CloseHandle(event);
   }
   ::CloseHandle(pipe);
+  return response;
+}
+
+// 取りこぼし保険（2026-11-02）: 接続はできたのに応答が返らなかったときだけ、
+// 短い期限でもう 1 回だけやり直す。サーバー不在（接続失敗）では再試行しない。
+std::string Transact(const std::string &request) {
+  bool connected = false;
+  std::string response = TransactOnce(request, kIpcTimeoutMsec, &connected);
+  if (response.empty() && connected) {
+    response = TransactOnce(request, kIpcRetryTimeoutMsec, &connected);
+  }
   return response;
 }
 
