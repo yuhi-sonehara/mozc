@@ -2755,6 +2755,11 @@ bool Session::ToggleAlphanumericMode(commands::Command* command) {
   // 直前の自動復帰が残した「表示を出さない」予約を打ち消す。これを残すと
   // 確定直後の Ctrl+Space が非表示になる（2026-10-31 実測の報告）。
   suppress_mode_indicator_once_ = false;
+  // 2026-11-02: 組成の組み直しが残した予約も捨てる。Output 側は once フラグが
+  // 立っていると判定フラグを消費しない（短絡評価）ため、予約が次のコマンドまで
+  // 生き残り、手動切替の表示を飲み込んでいた（実測: TIP ログで suppress=1 が
+  // 連続し、手動切替の表示が出ない）。
+  composer::jev::ConsumeModeIndicatorSuppression();
   const int jev_before_mode =
       static_cast<int>(context_->composer().GetInputMode());
   context_->mutable_composer()->ToggleInputMode();
@@ -3481,9 +3486,13 @@ void Session::Output(commands::Command* command) {
   // モード表示を出さない。手動の Ctrl+Space などは従来どおり表示する。
   // 2026-10-31: 抑制は「切替の瞬間の 1 回」だけにした。origin が auto の間ずっと
   // 抑制すると、毎打鍵の組み直しで表示が出ず、手動切替の表示まで巻き添えになる。
-  const bool suppress_indicator_now =
-      suppress_mode_indicator_once_ ||
+  // 2026-11-02: 短絡評価をやめる。once フラグが立っている間は判定フラグを
+  // 消費しないため、次のコマンド（手動 Ctrl+Space 等）へ持ち越して表示を
+  // 飲み込んでいた。常に消費して 1 コマンド 1 回に閉じる。
+  const bool judge_requested_suppression =
       composer::jev::ConsumeModeIndicatorSuppression();
+  const bool suppress_indicator_now =
+      suppress_mode_indicator_once_ || judge_requested_suppression;
   if (suppress_indicator_now) {
     command->mutable_output()->set_suppress_mode_indicator(true);
   }

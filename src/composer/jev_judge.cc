@@ -311,7 +311,19 @@ bool SplitTrailingSegment(const std::string &romaji, std::string *prefix,
     // 確定後の自動復帰で半角英数に戻った直後に打った「,」「.」は、そのまま
     // 組成に残る。判定ゲートは [a-z0-9-] 以外を弾くため、句読点より後ろを
     // 判定対象にすれば日本語の変換が再開する。
-    const size_t punct = romaji.find_last_of(",.");
+    // 2026-11-02: 句読点だけでなく括弧などの記号でも切る（実測: 半角英数で
+    // "(konnkaimo)" と打つと '(' がゲートに弾かれ、括弧内の日本語がずっと
+    // 変換されなかった）。判定できない文字のうち最後のものより後ろを判定する。
+    size_t punct = std::string::npos;
+    for (size_t i = romaji.size(); i-- > 0;) {
+      const char c = romaji[i];
+      const bool judgeable = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                             (c >= '0' && c <= '9') || c == '-';
+      if (!judgeable) {
+        punct = i;
+        break;
+      }
+    }
     if (punct != std::string::npos && punct + 1 < romaji.size()) {
       *prefix = romaji.substr(0, punct + 1);
       *segment = romaji.substr(punct + 1);
