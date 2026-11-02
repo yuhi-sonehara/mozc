@@ -2755,6 +2755,8 @@ bool Session::ToggleAlphanumericMode(commands::Command* command) {
   // 直前の自動復帰が残した「表示を出さない」予約を打ち消す。これを残すと
   // 確定直後の Ctrl+Space が非表示になる（2026-10-31 実測の報告）。
   suppress_mode_indicator_once_ = false;
+  // ユーザーが明示的に切り替えたら、Ctrl+b 由来の自動復帰は取り消す。
+  return_to_half_ascii_after_commit_ = false;
   // 2026-11-02: 組成の組み直しが残した予約も捨てる。Output 側は once フラグが
   // 立っていると判定フラグを消費しない（短絡評価）ため、予約が次のコマンドまで
   // 生き残り、手動切替の表示を飲み込んでいた（実測: TIP ログで suppress=1 が
@@ -2889,6 +2891,9 @@ bool Session::ForceKanaAndConvert(commands::Command* command) {
     composer->InsertCharacter(raw.substr(i, 1));
   }
   composer::jev::ClearModeOrigin();
+  // この救済は「元のモードへ戻る」のが自然なので、確定・取消の時点で
+  // 半角英数へ戻す印を付ける（2026-11-02）。
+  return_to_half_ascii_after_commit_ = true;
   SetSessionState(ImeContext::COMPOSITION, context_.get());
   return Convert(command);
 }
@@ -3312,8 +3317,12 @@ void Session::OutputFromState(commands::Command* command) {
 // 確定・取消・全削除など、組成が終わる経路すべてから呼ぶ（呼び忘れると
 // ひらがなモードのまま取り残され、次の文が素の入力になる）。
 void Session::MaybeReturnToHalfAscii() {
+  // 2026-11-02: Ctrl+b（かなに直して変換）で作った組成も、終わったら元の
+  // 半角英数へ戻す（戻さないとかな入力モードに残る、という報告への対応）。
+  const bool forced_return = return_to_half_ascii_after_commit_;
   if (composer::jev::GetModeOrigin() !=
-      composer::jev::ModeOrigin::kAutoSwitchedByJudge) {
+          composer::jev::ModeOrigin::kAutoSwitchedByJudge &&
+      !forced_return) {
     return;
   }
   if (!context_->composer().Empty()) {
@@ -3321,10 +3330,12 @@ void Session::MaybeReturnToHalfAscii() {
   }
   if (context_->composer().GetInputMode() != transliteration::HIRAGANA) {
     composer::jev::ClearModeOrigin();
+    return_to_half_ascii_after_commit_ = false;
     return;
   }
   SwitchInputMode(transliteration::HALF_ASCII, context_->mutable_composer());
   composer::jev::ClearModeOrigin();
+  return_to_half_ascii_after_commit_ = false;
   // 自動復帰なので、クライアントのモード表示は出さない（次の Output で送る）。
   suppress_mode_indicator_once_ = true;
   // クライアントが追いつくまで、キーに載っている古いモードを無視する。
