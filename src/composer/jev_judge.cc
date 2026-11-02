@@ -657,6 +657,32 @@ bool MaybeConvertToKana(Composer *composer) {
   //   まま = raw が伸びない典型症状）。実績のある en 方向と同じ「全消し → 再投入」
   //   に統一する（部分組み直しは行わない）。
   // ⚠ 呼び出し側は in_hook = true のまま本ラムダを呼ぶこと（再入防止）。
+  // 2026-11-03: 日本語の組成では句読点を全角で見せる。かな入力の Mozc は
+  // "," を「、」に変換するが、組み直しの InsertCharacter では半角のまま
+  // 入ってしまう（実測: web,desu -> web,です）。ja スパンの記号だけ全角へ
+  // 置き換えて生挿入する。MOZC_JEV_HALFWIDTH_PUNCT=1 で無効化できる。
+  const bool fullwidth_punct = []() {
+    const char *value = std::getenv("MOZC_JEV_HALFWIDTH_PUNCT");
+    return value == nullptr || std::string(value) != "1";
+  }();
+  auto fullwidth_punct_char = [&](char ch) -> std::string {
+    if (!fullwidth_punct) {
+      return "";
+    }
+    switch (ch) {
+      case ',':
+        return "\xE3\x80\x81";
+      case '.':
+        return "\xE3\x80\x82";
+      case '!':
+        return "\xEF\xBC\x81";
+      case '?':
+        return "\xEF\xBC\x9F";
+      default:
+        return "";
+    }
+  };
+
   auto rebuild = [&](const std::vector<std::pair<bool, std::string>> &segments) {
     bool has_english_segment = false;
     composer->SetInputMode(transliteration::HIRAGANA);
@@ -676,6 +702,11 @@ bool MaybeConvertToKana(Composer *composer) {
         composer->InsertCharacterPreedit(seg.second);
       } else {
         for (std::string::size_type i = 0; i < seg.second.size(); ++i) {
+          const std::string wide = fullwidth_punct_char(seg.second[i]);
+          if (!wide.empty()) {
+            composer->InsertCharacterPreedit(wide);
+            continue;
+          }
           composer->InsertCharacter(seg.second.substr(i, 1));
         }
       }
