@@ -282,9 +282,12 @@ bool IsJudgeableRun(const std::string &text) {
     return false;
   }
   for (const char c : text) {
-    const bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-                    (c >= '0' && c <= '9') || c == '-' || c == ' ';
-    if (!ok) {
+    // 2026-11-02: 記号（+ ( ) など）を含む組成も全体判定に回す。判定サーバーは
+    // 記号を en スパンとして返すので、組み直しで ASCII のまま残る。記号を弾いて
+    // いたため、「ctrl+b woosite...」のような組成が一度かなになると以降ずっと
+    // 判定されなくなっていた（実測 2026-11-02 15:27）。
+    const unsigned char u = static_cast<unsigned char>(c);
+    if (u < 0x20 || u > 0x7e) {
       return false;
     }
   }
@@ -708,11 +711,15 @@ bool MaybeConvertToKana(Composer *composer) {
 
   std::string prefix;
   std::string segment;
-  if (whole_run) {
+  // 2026-11-02: 全体判定は生ローマ字に判定できない文字（空白以外の記号など）が
+  // 混ざると成立しない。実測: 「ctrl+b woositemozen...」のように '+' を含む組成が
+  // 一度かなへ切り替わると、以降 whole_run のゲートで毎回弾かれ、判定サーバーへ
+  // 一度も届かなくなった（打鍵しても ASCII のまま）。成立しないときは末尾
+  // セグメント判定へ落とす。
+  const bool use_whole_run =
+      whole_run && romaji.size() >= kMinSegmentLength && IsJudgeableRun(romaji);
+  if (use_whole_run) {
     segment = romaji;
-    if (segment.size() < kMinSegmentLength || !IsJudgeableRun(segment)) {
-      return false;
-    }
   } else {
     if (!SplitTrailingSegment(romaji, &prefix, &segment) ||
         segment.size() < kMinSegmentLength || !IsJudgeableKeys(segment)) {
@@ -732,7 +739,7 @@ bool MaybeConvertToKana(Composer *composer) {
   in_hook = true;  // 判定と組み直しの全体をガードする（組み直し中の再入防止）
   const Verdict verdict = QueryDecision(segment, mode_value);
 
-  if (whole_run) {
+  if (use_whole_run) {
     // サーバーが返すスパン（ja:ha|en: |ja:na|...）で全体を組み直す。
     std::string joined;
     bool has_ja_span = false;
