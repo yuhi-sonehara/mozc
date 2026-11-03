@@ -591,6 +591,13 @@ bool JudgeShortRunIsKana(const std::string &romaji) {
   return verdict.decision == "ja" && verdict.confidence >= kMinConfidenceJa;
 }
 
+namespace {
+// 直近の組み直しで使ったスパン（2026-11-03）。下書きのスパン単位変換が使う。
+thread_local std::vector<std::pair<bool, std::string>> g_last_spans;
+}  // namespace
+
+std::vector<std::pair<bool, std::string>> GetLastSpans() { return g_last_spans; }
+
 void DebugLog(const std::string &line) { WriteDebugLog(line); }
 
 void NotifyCommit(const std::string &raw, int mode, const std::string &text) {
@@ -696,19 +703,16 @@ bool MaybeConvertToKana(Composer *composer) {
       composer->SetInputMode(seg.first ? transliteration::HALF_ASCII
                                        : transliteration::HIRAGANA);
       composer->SetNewInput();
-      if (seg.first) {
-        // 半角のまま見せたい部分は、実績のある en 方向と同じ生挿入を使う
-        // （かなモードで InsertCharacterPreedit すると全角化されるため）。
-        composer->InsertCharacterPreedit(seg.second);
-      } else {
-        for (std::string::size_type i = 0; i < seg.second.size(); ++i) {
-          const std::string wide = fullwidth_punct_char(seg.second[i]);
-          if (!wide.empty()) {
-            composer->InsertCharacterPreedit(wide);
-            continue;
-          }
-          composer->InsertCharacter(seg.second.substr(i, 1));
+      // 2026-11-03: 句読点は en スパン（半角のまま残す前置き）にも現れる。
+      // 実測: web,desu は「web」と「,」が前置き側の en スパンになり、カンマが
+      // 半角のまま残った。どちらのスパンでも記号だけは全角で生挿入する。
+      for (std::string::size_type i = 0; i < seg.second.size(); ++i) {
+        const std::string wide = fullwidth_punct_char(seg.second[i]);
+        if (!wide.empty()) {
+          composer->InsertCharacterPreedit(wide);
+          continue;
         }
+        composer->InsertCharacter(seg.second.substr(i, 1));
       }
     }
     // モードは「ひらがな」で終える（英日混在のあとも続けて日本語を打てるように）。
@@ -719,6 +723,7 @@ bool MaybeConvertToKana(Composer *composer) {
     // ローマ字としてかな化してしまう（実測: ｂぉｃけｄ）。
     composer->SetInputMode(has_english_segment ? transliteration::HALF_ASCII
                                               : transliteration::HIRAGANA);
+    g_last_spans = segments;
   };
 
   // 現在の表示。ASCII / かなの混在具合で「全体を判定するか、末尾だけで

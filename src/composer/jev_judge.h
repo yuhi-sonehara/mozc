@@ -32,6 +32,8 @@
 
 
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace mozc {
 namespace composer {
@@ -62,6 +64,10 @@ class Judge {
 // 残した混在組成に組み直す。
 // Composer::ProcessCompositionInput から呼ばれる。
 bool MaybeConvertToKana(Composer *composer);
+
+// 直近の組み直しに使ったスパンの写し（en=true は半角のまま残す部分）。
+// 下書き（ライブ変換）がスパン単位で変換するために参照する（2026-11-03）。
+std::vector<std::pair<bool, std::string>> GetLastSpans();
 
 // 2 打鍵の半角組成を区切り（Space / Enter）で判定する。日本語 (ja) と
 // 確信できたら true。判定サーバー不通時は false（従来動作）。
