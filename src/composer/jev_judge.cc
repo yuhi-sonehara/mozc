@@ -732,7 +732,19 @@ bool MaybeConvertToKana(Composer *composer) {
         i += len;
         const std::string wide = fullwidth_punct_text(ch);
         if (!wide.empty()) {
+          // 半角英数のチャンクは生ローマ字がそのまま表示になる
+          // （HalfAsciiTransliterator は raw を優先する。実測 2026-11-04:
+          //  web,desu の preedit が web,です のままだった）。記号だけ一時的に
+          //  ひらがなモードで「生は ASCII・表示は全角」のチャンクを作り、
+          //  直後に元のモードへ戻す（SetInputMode は以後のチャンクにだけ効く）。
+          const bool back_to_half_ascii = seg.first;
+          if (back_to_half_ascii) {
+            composer->SetInputMode(transliteration::HIRAGANA);
+          }
           composer->InsertCharacterKeyAndPreedit(ch, wide);
+          if (back_to_half_ascii) {
+            composer->SetInputMode(transliteration::HALF_ASCII);
+          }
           continue;
         }
         if (len > 1) {
