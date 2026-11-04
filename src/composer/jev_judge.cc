@@ -666,17 +666,20 @@ bool MaybeConvertToKana(Composer *composer) {
   // ⚠ 呼び出し側は in_hook = true のまま本ラムダを呼ぶこと（再入防止）。
   // 2026-11-03: 日本語の組成では句読点を全角で見せる。かな入力の Mozc は
   // "," を「、」に変換するが、組み直しの InsertCharacter では半角のまま
-  // 入ってしまう（実測: web,desu -> web,です）。ja スパンの記号だけ全角へ
-  // 置き換えて生挿入する。MOZC_JEV_HALFWIDTH_PUNCT=1 で無効化できる。
+  // 入ってしまう（実測: web,desu -> web,です）。
+  // 2026-11-04: 記号は UTF-8 の 1 文字分の文字列で受け取る。以前は 1 バイト
+  // ずつ判定していたため、en スパンに残った全角記号が 3 回の InsertCharacter
+  // に裂けて別の文字に化けた（実測: 、 -> ，）。
+  // MOZC_JEV_HALFWIDTH_PUNCT=1 で無効化できる。
   const bool fullwidth_punct = []() {
     const char *value = std::getenv("MOZC_JEV_HALFWIDTH_PUNCT");
     return value == nullptr || std::string(value) != "1";
   }();
-  auto fullwidth_punct_char = [&](char ch) -> std::string {
-    if (!fullwidth_punct) {
+  auto fullwidth_punct_text = [&](const std::string &ch) -> std::string {
+    if (!fullwidth_punct || ch.size() != 1) {
       return "";
     }
-    switch (ch) {
+    switch (ch[0]) {
       case ',':
         return "\xE3\x80\x81";
       case '.':
@@ -705,14 +708,38 @@ bool MaybeConvertToKana(Composer *composer) {
       composer->SetNewInput();
       // 2026-11-03: 句読点は en スパン（半角のまま残す前置き）にも現れる。
       // 実測: web,desu は「web」と「,」が前置き側の en スパンになり、カンマが
-      // 半角のまま残った。どちらのスパンでも記号だけは全角で生挿入する。
-      for (std::string::size_type i = 0; i < seg.second.size(); ++i) {
-        const std::string wide = fullwidth_punct_char(seg.second[i]);
+      // 半角のまま残った。どちらのスパンでも記号は全角で見せる。
+      // 2026-11-04: ただし組成の生文字列に全角記号を残すと、次の打鍵で判定器が
+      // それを英語トークンの一部として返し、再投入のたびに別の文字へ化ける
+      // （実測: hokanimo、 -> en:hokanimo、 -> 全角 ASCII の ，）。生ローマ字は
+      // ASCII のまま、表示だけ全角にする（InsertCharacterKeyAndPreedit）。
+      // 多バイト文字を 1 バイトずつ InsertCharacter すると壊れるため、UTF-8 の
+      // 1 文字単位で切り出して入れる。
+      for (std::string::size_type i = 0; i < seg.second.size();) {
+        const unsigned char lead = static_cast<unsigned char>(seg.second[i]);
+        std::string::size_type len = 1;
+        if ((lead & 0xE0) == 0xC0) {
+          len = 2;
+        } else if ((lead & 0xF0) == 0xE0) {
+          len = 3;
+        } else if ((lead & 0xF8) == 0xF0) {
+          len = 4;
+        }
+        if (i + len > seg.second.size()) {
+          len = 1;
+        }
+        const std::string ch = seg.second.substr(i, len);
+        i += len;
+        const std::string wide = fullwidth_punct_text(ch);
         if (!wide.empty()) {
-          composer->InsertCharacterPreedit(wide);
+          composer->InsertCharacterKeyAndPreedit(ch, wide);
           continue;
         }
-        composer->InsertCharacter(seg.second.substr(i, 1));
+        if (len > 1) {
+          composer->InsertCharacterKeyAndPreedit(ch, ch);
+          continue;
+        }
+        composer->InsertCharacter(ch);
       }
     }
     // モードは「ひらがな」で終える（英日混在のあとも続けて日本語を打てるように）。
