@@ -709,10 +709,10 @@ bool MaybeConvertToKana(Composer *composer) {
       // 2026-11-03: 句読点は en スパン（半角のまま残す前置き）にも現れる。
       // 実測: web,desu は「web」と「,」が前置き側の en スパンになり、カンマが
       // 半角のまま残った。どちらのスパンでも記号は全角で見せる。
-      // 2026-11-04: ただし組成の生文字列に全角記号を残すと、次の打鍵で判定器が
-      // それを英語トークンの一部として返し、再投入のたびに別の文字へ化ける
-      // （実測: hokanimo、 -> en:hokanimo、 -> 全角 ASCII の ，）。生ローマ字は
-      // ASCII のまま、表示だけ全角にする（InsertCharacterKeyAndPreedit）。
+      // 2026-11-04: 全角記号を組成の生文字列に残すと、次の打鍵で判定器がそれを
+      // 英語トークンの一部として返す（実測: hokanimo、 -> en:hokanimo、）。
+      // 2026-11-05: 「,」「.」は生を ASCII のまま、かなモードのローマ字表に
+      // 変換させる（表示だけ全角）。「!」「?」は全角文字を生で入れる。
       // 多バイト文字を 1 バイトずつ InsertCharacter すると壊れるため、UTF-8 の
       // 1 文字単位で切り出して入れる。
       for (std::string::size_type i = 0; i < seg.second.size();) {
@@ -732,19 +732,27 @@ bool MaybeConvertToKana(Composer *composer) {
         i += len;
         const std::string wide = fullwidth_punct_text(ch);
         if (!wide.empty()) {
-          // 半角英数のチャンクは生ローマ字がそのまま表示になる
-          // （HalfAsciiTransliterator は raw を優先する。実測 2026-11-04:
-          //  web,desu の preedit が web,です のままだった）。記号だけ一時的に
-          //  ひらがなモードで「生は ASCII・表示は全角」のチャンクを作り、
-          //  直後に元のモードへ戻す（SetInputMode は以後のチャンクにだけ効く）。
-          const bool back_to_half_ascii = seg.first;
-          if (back_to_half_ascii) {
-            composer->SetInputMode(transliteration::HIRAGANA);
+          // 2026-11-05: 「,」「.」はかなモードのローマ字表に任せる
+          // （romanji-hiragana.tsv の "," -> "、"、"." -> "。"）。InsertCharacter は
+          // 新しいチャンクを作り、そのチャンクの字種は「今のモード」で決まるので、
+          // 直前に半角英数のチャンクがあっても表示が半角に引きずられない。
+          // 実測 2026-11-04: 生を ASCII のまま表示だけ全角にしようとすると、どの
+          // チャンクに吸収されるかで表示が変わって不安定だった（web,です と
+          // web、です が同じビルドで出た）。生ローマ字は ASCII のまま残る。
+          // 「!」「?」はローマ字表に規則が無いため全角文字を生で入れる。
+          if (ch == "," || ch == ".") {
+            const bool back_to_half_ascii = seg.first;
+            if (back_to_half_ascii) {
+              composer->SetInputMode(transliteration::HIRAGANA);
+            }
+            composer->SetNewInput();
+            composer->InsertCharacter(ch);
+            if (back_to_half_ascii) {
+              composer->SetInputMode(transliteration::HALF_ASCII);
+            }
+            continue;
           }
-          composer->InsertCharacterKeyAndPreedit(ch, wide);
-          if (back_to_half_ascii) {
-            composer->SetInputMode(transliteration::HALF_ASCII);
-          }
+          composer->InsertCharacterPreedit(wide);
           continue;
         }
         if (len > 1) {
@@ -921,7 +929,8 @@ bool MaybeConvertToKana(Composer *composer) {
     seg_log += seg.second;
   }
   WriteDebugLog("switch to hiragana: raw=\"" + romaji + "\" segment=\"" +
-                segment + "\" conf=" + std::to_string(verdict.confidence) +
+                segment + "\" mode=" + std::to_string(mode_value) +
+                " conf=" + std::to_string(verdict.confidence) +
                 " segs=\"" + seg_log + "\" preedit=\"" +
                 composer->GetStringForPreedit() + "\"\n");
   in_hook = false;
