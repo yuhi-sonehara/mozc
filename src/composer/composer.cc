@@ -1344,11 +1344,11 @@ bool Composer::TransformCharactersForNumbers(std::string* query) {
       }
 
       case JA_COMMA: {
-        // "、" should be "，" if the previous character is alphanumerics.
-        // character are both alphanumerics.
-        // Previous char should exist and be a number.
-        const bool lhs_check =
-            (i > 0 && IsAlphabetOrNumber(char_scripts[i - 1]));
+        // "、" should be "，" if the previous character is a number.
+        // Fork 2026-11-07: 文字（英単語）の直後は変換しない。"web、です" の
+        // "、" が "，" に化け、変換の問い合わせで半角 "," に畳まれていた
+        // （実測: 組成 web、です -> 確定 web,です）。数字の直後だけ従来どおり。
+        const bool lhs_check = (i > 0 && char_scripts[i - 1] == NUMBER);
         // JA_COMMA should be transformed to COMMA.
         if (lhs_check) {
           CharacterFormManager::GetCharacterFormManager()->ConvertPreeditString(
@@ -1359,11 +1359,9 @@ bool Composer::TransformCharactersForNumbers(std::string* query) {
       }
 
       case JA_PERIOD: {
-        // "。" should be "．" if the previous character and the next
-        // character are both alphanumerics.
-        // Previous char should exist and be a number.
-        const bool lhs_check =
-            (i > 0 && IsAlphabetOrNumber(char_scripts[i - 1]));
+        // "。" should be "．" if the previous character is a number.
+        // Fork 2026-11-07: 文字（英単語）の直後は変換しない（JA_COMMA と同様）。
+        const bool lhs_check = (i > 0 && char_scripts[i - 1] == NUMBER);
         // JA_PERIOD should be transformed to PERIOD.
         if (lhs_check) {
           CharacterFormManager::GetCharacterFormManager()->ConvertPreeditString(
