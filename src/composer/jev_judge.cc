@@ -675,22 +675,17 @@ bool MaybeConvertToKana(Composer *composer) {
     const char *value = std::getenv("MOZC_JEV_HALFWIDTH_PUNCT");
     return value == nullptr || std::string(value) != "1";
   }();
-  auto fullwidth_punct_text = [&](const std::string &ch) -> std::string {
-    if (!fullwidth_punct || ch.size() != 1) {
-      return "";
+  // 2026-11-07: 「,」「.」だけを和文の句読点（、。）に寄せる。英数字と
+  // 「!」「?」は既定で半角のまま見せる（ご主人様の指定）。
+  auto is_ja_punct = [&](const std::string &ch) -> bool {
+    return fullwidth_punct && (ch == "," || ch == ".");
+  };
+  auto keep_half_ascii = [](const std::string &ch) -> bool {
+    if (ch.size() != 1) {
+      return false;
     }
-    switch (ch[0]) {
-      case ',':
-        return "\xE3\x80\x81";
-      case '.':
-        return "\xE3\x80\x82";
-      case '!':
-        return "\xEF\xBC\x81";
-      case '?':
-        return "\xEF\xBC\x9F";
-      default:
-        return "";
-    }
+    const unsigned char c = static_cast<unsigned char>(ch[0]);
+    return (c >= '0' && c <= '9') || c == '!' || c == '?';
   };
 
   auto rebuild = [&](const std::vector<std::pair<bool, std::string>> &segments) {
@@ -708,11 +703,11 @@ bool MaybeConvertToKana(Composer *composer) {
       composer->SetNewInput();
       // 2026-11-03: 句読点は en スパン（半角のまま残す前置き）にも現れる。
       // 実測: web,desu は「web」と「,」が前置き側の en スパンになり、カンマが
-      // 半角のまま残った。どちらのスパンでも記号は全角で見せる。
+      // 半角のまま残った。どちらのスパンでも「,」「.」は和文の句読点として見せる。
       // 2026-11-04: 全角記号を組成の生文字列に残すと、次の打鍵で判定器がそれを
       // 英語トークンの一部として返す（実測: hokanimo、 -> en:hokanimo、）。
-      // 2026-11-05: 「,」「.」は生を ASCII のまま、かなモードのローマ字表に
-      // 変換させる（表示だけ全角）。「!」「?」は全角文字を生で入れる。
+      // 2026-11-07: 英数字と「!」「?」は既定で半角のまま（ご主人様の指定）。
+      // 全角へ寄せるのは「,」「.」だけにし、他の ASCII は生のまま入れる。
       // 多バイト文字を 1 バイトずつ InsertCharacter すると壊れるため、UTF-8 の
       // 1 文字単位で切り出して入れる。
       for (std::string::size_type i = 0; i < seg.second.size();) {
@@ -730,29 +725,37 @@ bool MaybeConvertToKana(Composer *composer) {
         }
         const std::string ch = seg.second.substr(i, len);
         i += len;
-        const std::string wide = fullwidth_punct_text(ch);
-        if (!wide.empty()) {
+        if (is_ja_punct(ch)) {
           // 2026-11-05: 「,」「.」はかなモードのローマ字表に任せる
           // （romanji-hiragana.tsv の "," -> "、"、"." -> "。"）。InsertCharacter は
           // 新しいチャンクを作り、そのチャンクの字種は「今のモード」で決まるので、
           // 直前に半角英数のチャンクがあっても表示が半角に引きずられない。
-          // 実測 2026-11-04: 生を ASCII のまま表示だけ全角にしようとすると、どの
-          // チャンクに吸収されるかで表示が変わって不安定だった（web,です と
-          // web、です が同じビルドで出た）。生ローマ字は ASCII のまま残る。
-          // 「!」「?」はローマ字表に規則が無いため全角文字を生で入れる。
-          if (ch == "," || ch == ".") {
-            const bool back_to_half_ascii = seg.first;
-            if (back_to_half_ascii) {
-              composer->SetInputMode(transliteration::HIRAGANA);
-            }
-            composer->SetNewInput();
-            composer->InsertCharacter(ch);
-            if (back_to_half_ascii) {
-              composer->SetInputMode(transliteration::HALF_ASCII);
-            }
-            continue;
+          // 生ローマ字は ASCII のまま残る。
+          const bool back_to_half_ascii = seg.first;
+          if (back_to_half_ascii) {
+            composer->SetInputMode(transliteration::HIRAGANA);
           }
-          composer->InsertCharacterPreedit(wide);
+          composer->SetNewInput();
+          composer->InsertCharacter(ch);
+          if (back_to_half_ascii) {
+            composer->SetInputMode(transliteration::HALF_ASCII);
+          }
+          continue;
+        }
+        if (keep_half_ascii(ch)) {
+          // 2026-11-07: 英数字と「!」「?」は半角のまま。ひらがなモードの
+          // チャンクは半角 ASCII を全角へ広げるため（例: 3 -> ３）、その文字だけ
+          // 半角英数モードのチャンクとして入れる。
+          const bool back_to_hiragana = !seg.first;
+          if (back_to_hiragana) {
+            composer->SetInputMode(transliteration::HALF_ASCII);
+            composer->SetNewInput();
+          }
+          composer->InsertCharacter(ch);
+          if (back_to_hiragana) {
+            composer->SetInputMode(transliteration::HIRAGANA);
+            composer->SetNewInput();
+          }
           continue;
         }
         if (len > 1) {
