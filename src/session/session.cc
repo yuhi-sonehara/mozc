@@ -2544,6 +2544,8 @@ bool Session::TranslateHalfASCII(commands::Command* command) {
 bool Session::CompositionModeHiragana(commands::Command* command) {
   command->mutable_output()->set_consumed(true);
   EnsureIMEIsOn();
+  // Fork: 手動の切替なので、保留中の表示抑制予約を捨てる（2026-11-18）。
+  ClearPendingModeIndicatorSuppression();
   // The temporary mode should not be overridden.
   SwitchInputMode(transliteration::HIRAGANA, context_->mutable_composer());
   OutputFromState(command);
@@ -2553,6 +2555,8 @@ bool Session::CompositionModeHiragana(commands::Command* command) {
 bool Session::CompositionModeFullKatakana(commands::Command* command) {
   command->mutable_output()->set_consumed(true);
   EnsureIMEIsOn();
+  // Fork: 手動の切替なので、保留中の表示抑制予約を捨てる（2026-11-18）。
+  ClearPendingModeIndicatorSuppression();
   // The temporary mode should not be overridden.
   SwitchInputMode(transliteration::FULL_KATAKANA, context_->mutable_composer());
   OutputFromState(command);
@@ -2562,6 +2566,8 @@ bool Session::CompositionModeFullKatakana(commands::Command* command) {
 bool Session::CompositionModeHalfKatakana(commands::Command* command) {
   command->mutable_output()->set_consumed(true);
   EnsureIMEIsOn();
+  // Fork: 手動の切替なので、保留中の表示抑制予約を捨てる（2026-11-18）。
+  ClearPendingModeIndicatorSuppression();
   // The temporary mode should not be overridden.
   SwitchInputMode(transliteration::HALF_KATAKANA, context_->mutable_composer());
   OutputFromState(command);
@@ -2571,6 +2577,8 @@ bool Session::CompositionModeHalfKatakana(commands::Command* command) {
 bool Session::CompositionModeFullASCII(commands::Command* command) {
   command->mutable_output()->set_consumed(true);
   EnsureIMEIsOn();
+  // Fork: 手動の切替なので、保留中の表示抑制予約を捨てる（2026-11-18）。
+  ClearPendingModeIndicatorSuppression();
   // The temporary mode should not be overridden.
   SwitchInputMode(transliteration::FULL_ASCII, context_->mutable_composer());
   OutputFromState(command);
@@ -2580,6 +2588,8 @@ bool Session::CompositionModeFullASCII(commands::Command* command) {
 bool Session::CompositionModeHalfASCII(commands::Command* command) {
   command->mutable_output()->set_consumed(true);
   EnsureIMEIsOn();
+  // Fork: 手動の切替なので、保留中の表示抑制予約を捨てる（2026-11-18）。
+  ClearPendingModeIndicatorSuppression();
   // The temporary mode should not be overridden.
   SwitchInputMode(transliteration::HALF_ASCII, context_->mutable_composer());
   OutputFromState(command);
@@ -2592,6 +2602,8 @@ bool Session::CompositionModeSwitchKanaType(commands::Command* command) {
   }
 
   command->mutable_output()->set_consumed(true);
+  // Fork: 手動の切替なので、保留中の表示抑制予約を捨てる（2026-11-18）。
+  ClearPendingModeIndicatorSuppression();
 
   transliteration::TransliterationType current_type =
       context_->composer().GetInputMode();
@@ -2752,16 +2764,11 @@ bool Session::ToggleAlphanumericMode(commands::Command* command) {
   composer::jev::SetModeOrigin(composer::jev::ModeOrigin::kManualByUser);
   // ユーザーの明示的な切替が最優先。自動復帰のロックは解除する。
   server_mode_locked_ = false;
-  // 直前の自動復帰が残した「表示を出さない」予約を打ち消す。これを残すと
-  // 確定直後の Ctrl+Space が非表示になる（2026-10-31 実測の報告）。
-  suppress_mode_indicator_once_ = false;
+  // 直前の自動復帰や組み直しが残した「表示を出さない」予約を打ち消す。これを
+  // 残すと確定直後の Ctrl+Space が非表示になる（2026-10-31・11-02 実測）。
+  ClearPendingModeIndicatorSuppression();
   // ユーザーが明示的に切り替えたら、Ctrl+b 由来の自動復帰は取り消す。
   return_to_half_ascii_after_commit_ = false;
-  // 2026-11-02: 組成の組み直しが残した予約も捨てる。Output 側は once フラグが
-  // 立っていると判定フラグを消費しない（短絡評価）ため、予約が次のコマンドまで
-  // 生き残り、手動切替の表示を飲み込んでいた（実測: TIP ログで suppress=1 が
-  // 連続し、手動切替の表示が出ない）。
-  composer::jev::ConsumeModeIndicatorSuppression();
   const int jev_before_mode =
       static_cast<int>(context_->composer().GetInputMode());
   context_->mutable_composer()->ToggleInputMode();
@@ -3342,6 +3349,19 @@ void Session::MaybeReturnToHalfAscii() {
   server_mode_locked_ = true;
 }
 
+// Fork: 保留中の表示抑制予約を捨てる（2026-11-18）。Output() を通らない経路
+// （OutputComposition など）が予約を消費せずに残すと、次の手動切替の表示を
+// 飲み込む。手動切替の入口で明示的に捨てて、必ず表示させる。
+void Session::ClearPendingModeIndicatorSuppression() {
+  const bool judge_pending = composer::jev::ConsumeModeIndicatorSuppression();
+  const bool pending = suppress_mode_indicator_once_ || judge_pending;
+  suppress_mode_indicator_once_ = false;
+  if (pending) {
+    composer::jev::DebugLog(
+        "manual switch: dropped pending indicator suppression\n");
+  }
+}
+
 // Fork: 組成に ASCII（英単語トークン）が含まれるか。含まれる組成を変換器に
 // かけると "web" が「ウェb」のように壊れるため、その場合は変換器を使わず
 // サジェスト候補からの下書き（TryDraftFromCandidates）に任せる。
@@ -3487,11 +3507,38 @@ void Session::Output(commands::Command* command) {
   // Fork: ハイブリッド UI が有効なときだけ、組成中の予測候補を落とす（候補
   // ウィンドウは変換修正モードでだけ出す）。半角英数の組成に加え、判定でかなへ
   // 切り替えた組成（ひらがなモード）も対象にする。素の Mozc の組成は不変。
+  bool cleared_candidate_window = false;
   if (HybridUiEnabled() && context_->state() == ImeContext::COMPOSITION &&
       (context_->composer().GetInputMode() == transliteration::HALF_ASCII ||
        composer::jev::GetModeOrigin() ==
            composer::jev::ModeOrigin::kAutoSwitchedByJudge)) {
     command->mutable_output()->clear_candidate_window();
+    cleared_candidate_window = true;
+  }
+  // Fork 診断（2026-11-18）: 候補ウィンドウをサーバー側で落としたかを残す。
+  // 候補が出ない事象が「サーバーが消した」「TIP が描かなかった」のどちらかを
+  // 切り分けるための材料。同一内容の連続は畳む（毎打鍵の I/O を増やさない）。
+  {
+    static thread_local std::string last_candidate_log;
+    const bool has_candidate = command->output().has_candidate_window();
+    int category = -1;
+    if (has_candidate && command->output().candidate_window().has_category()) {
+      category =
+          static_cast<int>(command->output().candidate_window().category());
+    }
+    const std::string line =
+        "candidate: has=" + std::to_string(has_candidate ? 1 : 0) +
+        " cat=" + std::to_string(category) +
+        " cleared=" + std::to_string(cleared_candidate_window ? 1 : 0) +
+        " state=" + std::to_string(static_cast<int>(context_->state())) +
+        " mode=" +
+        std::to_string(static_cast<int>(context_->composer().GetInputMode())) +
+        " origin=" +
+        std::to_string(static_cast<int>(composer::jev::GetModeOrigin())) + "\n";
+    if (line != last_candidate_log) {
+      last_candidate_log = line;
+      composer::jev::DebugLog(line);
+    }
   }
   // Fork: 日英判定による自動切替（と確定時の自動復帰）では、クライアントの
   // モード表示を出さない。手動の Ctrl+Space などは従来どおり表示する。
@@ -3506,6 +3553,24 @@ void Session::Output(commands::Command* command) {
       suppress_mode_indicator_once_ || judge_requested_suppression;
   if (suppress_indicator_now) {
     command->mutable_output()->set_suppress_mode_indicator(true);
+  }
+  // Fork 診断（2026-11-18）: モード表示の抑制判断を残す。手動切替の表示が
+  // 出ないとき、サーバーが suppress=1 を付けているかを TIP 側のログと突き合わせる。
+  {
+    static thread_local std::string last_indicator_log;
+    const std::string line =
+        "indicator: suppress=" + std::to_string(suppress_indicator_now ? 1 : 0) +
+        " once=" + std::to_string(suppress_mode_indicator_once_ ? 1 : 0) +
+        " judge=" + std::to_string(judge_requested_suppression ? 1 : 0) +
+        " state=" + std::to_string(static_cast<int>(context_->state())) +
+        " mode=" +
+        std::to_string(static_cast<int>(context_->composer().GetInputMode())) +
+        " origin=" +
+        std::to_string(static_cast<int>(composer::jev::GetModeOrigin())) + "\n";
+    if (line != last_indicator_log) {
+      last_indicator_log = line;
+      composer::jev::DebugLog(line);
+    }
   }
   suppress_mode_indicator_once_ = false;
   if (context_->state() != ImeContext::COMPOSITION) {

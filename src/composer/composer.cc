@@ -1034,8 +1034,45 @@ void Composer::GetPreedit(std::string* left, std::string* focused,
   }
 }
 
+namespace {
+// 全角英字（Ａ-Ｚ / ａ-ｚ）だけを半角へ戻す。句読点・数字・かなはそのまま。
+// 2026-11-18: HIRAGANA の transliterator が未変換の英字を全角化するため、
+// 判定由来の組成では表示だけ半角に戻す（句読点の幅の扱い〔2026-11-07〕を
+// 巻き込まないよう、全角 ASCII 一括変換は使わない）。
+std::string FullWidthLettersToHalfWidth(absl::string_view input) {
+  std::string output;
+  output.reserve(input.size());
+  size_t i = 0;
+  while (i < input.size()) {
+    if (i + 3 <= input.size() &&
+        static_cast<unsigned char>(input[i]) == 0xEF) {
+      const unsigned char c1 = static_cast<unsigned char>(input[i + 1]);
+      const unsigned char c2 = static_cast<unsigned char>(input[i + 2]);
+      if (c1 == 0xBC && c2 >= 0xA1 && c2 <= 0xBA) {  // Ａ-Ｚ
+        output.push_back(static_cast<char>('A' + (c2 - 0xA1)));
+        i += 3;
+        continue;
+      }
+      if (c1 == 0xBD && c2 >= 0x81 && c2 <= 0x9A) {  // ａ-ｚ
+        output.push_back(static_cast<char>('a' + (c2 - 0x81)));
+        i += 3;
+        continue;
+      }
+    }
+    output.push_back(input[i]);
+    ++i;
+  }
+  return output;
+}
+}  // namespace
+
 std::string Composer::GetStringForPreedit() const {
-  return common::GetStringForPreedit(composition_, input_field_type_);
+  std::string output =
+      common::GetStringForPreedit(composition_, input_field_type_);
+  if (jev::IsJudgeOriginComposition()) {
+    output = FullWidthLettersToHalfWidth(output);
+  }
+  return output;
 }
 
 std::string Composer::GetStringForSubmission() const {

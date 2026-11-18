@@ -305,6 +305,9 @@ class Session {
   bool cursor_move_mode_ = false;
   // Fork: 組成が終わった時点で、判定由来のモード切替を半角英数へ戻す。
   void MaybeReturnToHalfAscii();
+  // Fork: 保留中の「モード表示を出さない」予約を捨てる。ユーザーの明示的な
+  // 切替では必ず表示するため、手動切替の入口すべてで呼ぶ（2026-11-18）。
+  void ClearPendingModeIndicatorSuppression();
   // Fork: 自動復帰のあと、クライアントが追いつくまでのキーに載っている
   // 古いモードを無視するためのフラグ。
   bool server_mode_locked_ = false;

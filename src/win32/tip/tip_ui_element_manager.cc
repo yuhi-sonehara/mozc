@@ -34,6 +34,7 @@
 #include <wil/com.h>
 
 #include <cstdint>
+#include <cstdio>
 #include <utility>
 
 #include "absl/container/flat_hash_map.h"
@@ -209,6 +210,39 @@ HRESULT TipUiElementManager::OnUpdate(TipTextService* text_service,
   } else {
     if (indicator_ui_id != TF_INVALID_UIELEMENTID) {
       indicator_mode = kUIEnd;
+    }
+  }
+
+  // Fork 診断（2026-11-18）: 候補ウィンドウ／インジケーターの表示判断を残す。
+  // 「サーバーは候補を送ったが TIP が描かなかった」を切り分けるための材料。
+  // 判断が変わったときだけ書く（毎回の UI 更新で I/O を増やさない）。
+  {
+    int category = -1;
+    if (output.has_candidate_window() &&
+        output.candidate_window().has_category()) {
+      category = static_cast<int>(output.candidate_window().category());
+    }
+    static thread_local uint32_t last_sig = 0xFFFFFFFFu;
+    const uint32_t sig =
+        existence_bits | (static_cast<uint32_t>(suggest_mode) << 8) |
+        (static_cast<uint32_t>(candidate_mode) << 12) |
+        (static_cast<uint32_t>(indicator_mode) << 16);
+    if (sig != last_sig) {
+      last_sig = sig;
+      TipInputModeManager *mode_manager =
+          text_service->GetThreadContext()->GetInputModeManager();
+      if (mode_manager != nullptr) {
+        char buf[192];
+        snprintf(buf, sizeof(buf),
+                 "uie exist=%u sug=%d cand=%d ind=%d cat=%d indvis=%d "
+                 "useind=%d\n",
+                 existence_bits, static_cast<int>(suggest_mode),
+                 static_cast<int>(candidate_mode),
+                 static_cast<int>(indicator_mode), category,
+                 mode_manager->IsIndicatorVisible() ? 1 : 0,
+                 private_context->input_behavior().use_mode_indicator ? 1 : 0);
+        mode_manager->JevLog(buf);
+      }
     }
   }
 

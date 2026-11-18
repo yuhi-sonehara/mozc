@@ -626,6 +626,10 @@ ModeOrigin GetModeOrigin() { return g_mode_origin; }
 
 void ClearModeOrigin() { g_mode_origin = ModeOrigin::kDefault; }
 
+bool IsJudgeOriginComposition() {
+  return g_mode_origin == ModeOrigin::kAutoSwitchedByJudge;
+}
+
 bool MaybeConvertToKana(Composer *composer) {
   // 自分の書き換え（InsertCharacter / InsertCharacterPreedit）で再入しないための番人。
   // ⚠ 組み直しの間は必ず true を保持する。前回 v16 は判定問い合わせの周りだけを

@@ -215,15 +215,6 @@ TipInputModeManager::NotifyActionSet TipInputModeManager::OnReceiveCommand(
     {
       char buf[192];
       snprintf(buf, sizeof(buf),
-               "recv actions=%d visible=%d supp=%d skip=%d vis=%d\n",
-               static_cast<int>(action_set),
-               static_cast<int>(mozc_visible_mode), suppress_indicator ? 1 : 0,
-               suppressed ? 1 : 0, IsIndicatorVisible() ? 1 : 0);
-      JevLog(buf);
-    }
-    {
-      char buf[192];
-      snprintf(buf, sizeof(buf),
                "recv actions=%d logical=%d visible=%d suppress=%d skip=%d vis=%d\n",
                static_cast<int>(action_set),
                static_cast<int>(mozc_logical_mode),

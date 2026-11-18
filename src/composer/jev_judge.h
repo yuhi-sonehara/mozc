@@ -105,6 +105,11 @@ ModeOrigin GetModeOrigin();
 // 記録した由来を kDefault に戻す。
 void ClearModeOrigin();
 
+// 判定（日英判定フック）が自動で切り替えた組成かどうか。HIRAGANA の
+// transliterator は残った英字を全角化するため、この組成では preedit だけ
+// 半角英字へ戻す（2026-11-18。句読点は対象外）。
+bool IsJudgeOriginComposition();
+
 // 診断用: %TEMP%\jev_judge_hook.log に1行追記する。
 // 入力経路のどこまで到達しているかを層ごとに確認するために使う。
 void DebugLog(const std::string &line);
